@@ -422,27 +422,29 @@ class Oscillator():
         Uses these results to estimate the energy difference between the ground state and first excited state which will be returned.
 
         Returns
-        delta_E: float
-            E_1 - E_0
-        delta_E_err: float
-            error estimate from curve fitting
+        delta_E: float, np.NaN
+            E_1 - E_0. NaN when energy difference could not be determined due to failed curve fitting
+        delta_E_err: float, np.NaN
+            error estimate from curve fitting. NaN when energy difference could not be determined due to failed curve fitting
         '''    
         ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlation(self.xs.T, 20)
         # print('Position autocorrelation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
-        cut = 5 # empirically determined last value of t not dominated by noise i.e exponential decay of autocorr_func
-        sep = ts[:cut]
-        log_rho = np.log(autocorr_func[:cut])
-        log_rho_err = 1/autocorr_func[:cut] * autocorr_func_err[:cut] # error propagation 
+        cut = 5 # number of points considered at most for fitting for the exponential decay of autocorr_func (empirically determined value) 
+        mask = autocorr_func[:cut]>0 # check that autocorrelation is positive on the fitting range
+        sep = ts[:cut][mask]
+        log_rho = np.log(autocorr_func[:cut][mask])
+        log_rho_err = 1/autocorr_func[:cut][mask] * autocorr_func_err[:cut][mask] # error propagation 
         
         def lin_func(x, m, b):
             return m*x+b
-
-        try:
-            popt, pcov = curve_fit(lin_func, sep, log_rho, sigma=log_rho_err, absolute_sigma=True) # uses chi2 minimization
-        except ValueError:
-            print('Unable to compute delta E as the autocorrelation contains infinities of NaNs for small separations.')
+         
+        if len(mask) == 0:
+            print('Unable to compute delta E as the autocorrelation is negative (noise dominated) for small separations.')
             return np.NaN, np.NaN
+
+        popt, pcov = curve_fit(lin_func, sep, log_rho, sigma=log_rho_err, absolute_sigma=True) # uses chi2 minimization
+
         delta_E = -popt[0]
         delta_E_err = pcov[0][0]
         # print('E_1-E_0 = %.5f +/- %.5f'%(delta_E, delta_E_err))
