@@ -226,7 +226,7 @@ class Oscillator():
             plt.show()
             fig.savefig(f'plots/x%d_vs_sweeps.pdf'%m)
 
-        print('<x^%d> = %.5f +/- %.5f '%(m, xm_avg, xm_avg_err))
+        # print('<x^%d> = %.5f +/- %.5f '%(m, xm_avg, xm_avg_err))
         return xm_avg, xm_avg_err
 
 
@@ -254,7 +254,7 @@ class Oscillator():
             fig.savefig('plots/deltaH_vs_sweeps.pdf')
 
 
-        print('<exp(-dH)> = %.5f +/- %.5f '%(exp__dH_avg, exp__dH_avg_err))
+        # print('<exp(-dH)> = %.5f +/- %.5f '%(exp__dH_avg, exp__dH_avg_err))
         return exp__dH_avg, exp__dH_avg_err
 
 
@@ -267,7 +267,7 @@ class Oscillator():
         self.E0_avg_err = np.std(data) / np.sqrt(data.size)
         #estimate, bias, stderr, conf_interval = jackknife_stats(data, np.mean, 0.95)
         
-        print('GS energy = %.5f +/- %.5f '%(self.E0_avg, self.E0_avg_err))
+        # print('GS energy = %.5f +/- %.5f '%(self.E0_avg, self.E0_avg_err))
         return self.E0_avg, self.E0_avg_err
 
 
@@ -401,7 +401,7 @@ class Oscillator():
         Optionally plots the correlation function. 
         '''    
         ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlation(self.xs, 100)
-        print('Configuration correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
+        # print('Configuration correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
         if make_plot:
             fig = plt.figure(figsize=(12,8))
@@ -428,7 +428,7 @@ class Oscillator():
             error estimate from curve fitting
         '''    
         ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlation(self.xs.T, 20)
-        print('Position autocorrelation function computed in %s'%(str(timedelta(seconds=delta_t))))
+        # print('Position autocorrelation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
         cut = 5 # empirically determined last value of t not dominated by noise i.e exponential decay of autocorr_func
         sep = ts[:cut]
@@ -445,7 +445,7 @@ class Oscillator():
             return np.NaN, np.NaN
         delta_E = -popt[0]
         delta_E_err = pcov[0][0]
-        print('E_1-E_0 = %.5f +/- %.5f'%(delta_E, delta_E_err))
+        # print('E_1-E_0 = %.5f +/- %.5f'%(delta_E, delta_E_err))
 
         if make_plot:
             fig = plt.figure(figsize=(12,8))
@@ -459,3 +459,15 @@ class Oscillator():
 
         # print('Position tau_int =  %.5f +/- %.5f'%(int_autocorr_time, int_autocorr_time_err))
         return delta_E, delta_E_err
+
+
+    def delta_E_dis_theo(self):
+        '''Computes difference between first two energy levels based on discrete theory.
+        '''
+        A = self.w * np.sqrt(1 + 1/4*(self.a*self.w)**2)
+        R = np.sqrt(1 + (self.a*A)**2) - self.a*A
+
+        j = 1 # for large N, energy difference hardly changes with j
+
+        E1_E0 = -1/self.a * np.log( (R**2-R**self.N) / (R-R**(self.N-1)) )
+        return E1_E0
