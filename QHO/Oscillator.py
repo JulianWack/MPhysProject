@@ -52,16 +52,15 @@ class Oscillator():
 
     def V(self, x):
         '''Harmonic potential with dimensionless mass, frequency and position.
-        Powers of the lattice spacing 'a' define the dimension of the quantity.
         '''
-        return 1/self.a * 0.5 * self.m * self.w**2 * x**2
+        return 0.5 * self.m * self.w**2 * x**2
+
 
     
     def dV_dx(self, x):
-        '''Dimensionful position derivative of harmonic potential causing an extra factor of 1/a.
-        Again expressed with dimensionless mass, frequency and position.
+        '''Derivative of the potential wrt. dimensionless less position.
         '''
-        return 1/self.a**2 * self.m * self.w**2 * x
+        return self.m * self.w**2 * x
 
 
     def Ham(self, x, p):
@@ -74,18 +73,17 @@ class Oscillator():
             
         Returns
         H: float
-            The dimensionless Hamiltonian
+            The Hamiltonian
         '''
         K = 0.5*np.sum(p**2)
         # x_{i+1} - x_i for periodic lattice can be quickly computed using np.roll
-        U = np.sum( 0.5*self.m*(np.roll(x,-1)-x)**2 + self.a*self.V(x) )
+        U = self.a*np.sum( 0.5*self.m*((np.roll(x,-1)-x)/self.a)**2 + self.V(x) )
 
         return K + U
 
 
     def leapfrog(self, x_old, p_old):
         '''
-        Current version uses dimensionless x and differentiates the dimensionful potential wrt. the dimensionful position. The dimensions are then fully captured by powers of a.
         Returns a new candidate lattice configuration (sample) by evolving the last accepted sample though solving Hamilton's equations via the leapfrog scheme.
         x_old: array
             last accepted sample
@@ -100,12 +98,12 @@ class Oscillator():
         '''
         # half step in p, full step in x
         p_cur = p_old - 0.5*self.eps/self.a * (self.m*(2*x_old-np.roll(x_old,1)-np.roll(x_old,-1)) + self.a**2*self.dV_dx(x_old))
-        x_cur = x_old + self.eps/self.a*p_cur 
+        x_cur = x_old + self.eps*p_cur 
 
         # ell-1 alternating full steps
         for n in range(self.ell):
             p_cur = p_cur - self.eps/self.a * (self.m*(2*x_cur-np.roll(x_cur,1)-np.roll(x_cur,-1)) + self.a**2*self.dV_dx(x_cur))
-            x_cur = x_cur + self.eps/self.a*p_cur
+            x_cur = x_cur + self.eps*p_cur
     
         # half step in p
         p_cur = p_cur - 0.5*self.eps/self.a * (self.m*(2*x_cur-np.roll(x_cur,1)-np.roll(x_cur,-1)) + self.a**2*self.dV_dx(x_cur))
@@ -162,10 +160,10 @@ class Oscillator():
                     x_samples[i] = x 
                 bar()
         
-        acc_rate = n_acc/(M-start_id)
+        self.acc_rate = n_acc/(M-start_id)
         t2 = time.time()
         print('Finished %d HMC steps in %s'%(M,str(timedelta(seconds=t2-t1))))
-        print('Acceptance rate: %.2f%%'%(acc_rate*100)) # ideally close to or greater than 65%
+        print('Acceptance rate: %.2f%%'%(self.acc_rate*100)) # ideally close to or greater than 65%
         
         # remove random starting configuration
         x_samples = np.delete(x_samples, 0, axis=0) 
@@ -322,7 +320,7 @@ class Oscillator():
         ax_residual.errorbar(bin_mids_avg, HMC_vals-dis_vals, yerr=HMC_vals_err, fmt="x", capsize=2, color=dis_line[0].get_color(), label='HMC - dis theory')
         
         cts_vals = np.abs(cts_func(bin_mids_avg))**2
-        cts_line = ax_wavefunc.plot(bin_mids_avg, cts_vals, label='continuous theory')
+        cts_line = ax_wavefunc.plot(bin_mids_avg, cts_vals, label='continuous theory', linestyle='dashed')
         ax_residual.errorbar(bin_mids_avg, HMC_vals-cts_vals, yerr=HMC_vals_err, fmt="x", capsize=2, color=cts_line[0].get_color(), label='HMC - cts theory')
 
 
@@ -335,7 +333,7 @@ class Oscillator():
 
         fig.tight_layout()
         plt.show()
-        fig.savefig('plots/wavefunction.pdf')
+        # fig.savefig('plots/wavefunction.pdf')
 
 
     def correlation(self, data, L):
@@ -395,10 +393,10 @@ class Oscillator():
         return ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t
 
     
-    def correlation_configs(self, make_plot=False):
-        '''Computes the correlation function (physicist language; autocorrelation in statistics language) between two configurations in the chain. 
+    def autocorrelation_configs(self, make_plot=False):
+        '''Computes the autocorrelation function between position variables of two configurations in the chain. 
         Returns the integrated autocorrelation time and its error. For a correctly thinned chain should less than 1. 
-        Optionally plots the correlation function. 
+        Optionally plots the autocorrelation function. 
         '''    
         ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlation(self.xs, 100)
         # print('Configuration correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
@@ -407,18 +405,18 @@ class Oscillator():
             fig = plt.figure(figsize=(12,8))
             plt.errorbar(ts, autocorr_func, yerr=autocorr_func_err, fmt='x', capsize=2)
             plt.yscale('log') # negative vals will not be shown
-            plt.xlim(0,10)
+            plt.xlim(0,100)
             plt.xlabel('configuration separation in chain')
-            plt.ylabel('correlation function')
+            plt.ylabel('autocorrelation function')
             plt.show()
-            fig.savefig('plots/correlation_configs.pdf')
+            # fig.savefig('plots/autocorrelation_configs.pdf')
 
         # print('Configuration tau_int =  %.5f +/- %.5f'%(int_autocorr_time, int_autocorr_time_err))
         return
 
 
-    def autocorrelation_latticesites(self, make_plot=False):
-        '''Computes the autocorrelation function between two position variables on the lattice and plots it.
+    def correlation_latticesites(self, make_plot=False):
+        '''Computes the correlation function between two position variables on the lattice and plots it.
         Uses these results to estimate the energy difference between the ground state and first excited state which will be returned.
 
         Returns
@@ -427,14 +425,14 @@ class Oscillator():
         delta_E_err: float, np.NaN
             error estimate from curve fitting. NaN when energy difference could not be determined due to failed curve fitting
         '''    
-        ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlation(self.xs.T, 20)
-        # print('Position autocorrelation function computed in %s'%(str(timedelta(seconds=delta_t))))
+        ts, corr_func, corr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlation(self.xs.T, 100)
+        # print('Position correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
-        cut = 5 # number of points considered at most for fitting for the exponential decay of autocorr_func (empirically determined value) 
-        mask = autocorr_func[:cut]>0 # check that autocorrelation is positive on the fitting range
+        cut = 5 # number of points considered at most for fitting for the exponential decay of corr_func (empirically determined value) 
+        mask = corr_func[:cut]>0 # check that correlation is positive on the fitting range
         sep = ts[:cut][mask]
-        log_rho = np.log(autocorr_func[:cut][mask])
-        log_rho_err = 1/autocorr_func[:cut][mask] * autocorr_func_err[:cut][mask] # error propagation 
+        log_rho = np.log(corr_func[:cut][mask])
+        log_rho_err = 1/corr_func[:cut][mask] * corr_func_err[:cut][mask] # error propagation 
         
         def lin_func(x, m, b):
             return m*x+b
@@ -444,20 +442,20 @@ class Oscillator():
             return np.NaN, np.NaN
 
         popt, pcov = curve_fit(lin_func, sep, log_rho, sigma=log_rho_err, absolute_sigma=True) # uses chi2 minimization
-
-        delta_E = -popt[0]
-        delta_E_err = pcov[0][0]
-        # print('E_1-E_0 = %.5f +/- %.5f'%(delta_E, delta_E_err))
+        # get dimensionless energy difference by introducing factor of a (due to computing correlation depending on index separation rather than separation on the lattice)  
+        delta_E = -popt[0] / self.a
+        delta_E_err = pcov[0][0] / self.a
 
         if make_plot:
             fig = plt.figure(figsize=(12,8))
-            plt.errorbar(ts, autocorr_func, yerr=autocorr_func_err, fmt='x', capsize=2)
-            plt.plot(ts[:cut], np.exp(lin_func(ts[:cut], *popt)))
+            plt.errorbar(ts, corr_func, yerr=corr_func_err, fmt='x', capsize=2)
+            plt.plot(ts[:cut], np.exp(lin_func(ts[:cut], *popt)), label='linear fit')
             plt.yscale('log') # negative vals will not be shown
-            plt.xlabel('lattice separation')
-            plt.ylabel('autocorrelation function')
+            plt.xlabel(r'lattice separation [$a$]')
+            plt.ylabel('correlation function')
+            plt.legend(prop={'size': 12})
             plt.show()
-            fig.savefig('plots/autocorrelation_latticesites.pdf')
+            # fig.savefig('plots/autocorrelation_latticesites.pdf')
 
         # print('Position tau_int =  %.5f +/- %.5f'%(int_autocorr_time, int_autocorr_time_err))
         return delta_E, delta_E_err
