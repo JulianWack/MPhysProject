@@ -371,7 +371,7 @@ class Oscillator():
 
         t1 = time.time()
         for t in ts:
-            covariances = [cov(i,t) for i in range(1,L-t)]
+            covariances = [cov(i,t) for i in range(0,L-t)]
             if len(covariances) == 0:
                 break
             autocov_func[t] = np.mean(covariances)
@@ -432,7 +432,7 @@ class Oscillator():
         delta_E_err: float, np.NaN
             error estimate from curve fitting. NaN when energy difference could not be determined due to failed curve fitting
         '''    
-        ts, corr_func, corr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlator(self.xs.T, 10)
+        ts, corr_func, corr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlator(self.xs.T, 25)
         # print('Position correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
         cut = 5 # number of points considered at most for fitting for the exponential decay of corr_func (empirically determined value) 
@@ -457,7 +457,6 @@ class Oscillator():
             fig = plt.figure(figsize=(12,8))
             plt.errorbar(ts, corr_func, yerr=corr_func_err, fmt='x', capsize=2)
             plt.plot(ts[:cut], np.exp(lin_func(ts[:cut], *popt)), label='linear fit')
-            plt.xscale('linear')
             fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
             plt.yscale('log') # negative vals will not be shown
             plt.xlabel(r'lattice separation [$a$]')
