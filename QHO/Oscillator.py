@@ -2,6 +2,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.ticker import MaxNLocator
 import matplotlib as mpl
 from cycler import cycler
 import time
@@ -140,8 +141,8 @@ class Oscillator():
         n_acc = 0
 
         # initial random lattice configuration to seed HMC
-        # x_samples = np.zeros(self.N) # cold start
-        x_samples[0] = np.random.uniform(-1, 1, size=self.N) # hot start
+        x_samples[0] = np.zeros(self.N) # cold start
+        # x_samples[0] = np.random.uniform(-1, 1, size=self.N) # hot start
         
         with alive_bar(M) as bar:
             for i in range(1,x_samples.shape[0]):
@@ -217,12 +218,12 @@ class Oscillator():
         xm_avg_err = np.std(xm_config_avg) / np.sqrt(xm_config_avg.size)
 
         if make_plot:
-            fig = plt.figure(figsize=(8,8))
+            fig = plt.figure(figsize=(10,8))
             plt.plot(self.sweeps, xm_config_avg)
             plt.xlabel('HMC sweep')
             plt.ylabel(r'$\langle x^{%d} \rangle$'%m)
             plt.show()
-            fig.savefig(f'plots/x%d_vs_sweeps.pdf'%m)
+            # fig.savefig(f'plots/x%d_vs_sweeps.pdf'%m)
 
         # print('<x^%d> = %.5f +/- %.5f '%(m, xm_avg, xm_avg_err))
         return xm_avg, xm_avg_err
@@ -244,12 +245,13 @@ class Oscillator():
         exp__dH_avg_err = np.std(np.exp(-self.delta_Hs)) / np.sqrt(exp__dH_avg.size)
 
         if make_plot:
-            fig = plt.figure(figsize=(8,8))
-            plt.plot(self.sweeps, np.exp(-self.delta_Hs)) 
+            fig = plt.figure(figsize=(10,8))
+            plt.scatter(self.sweeps, np.exp(-self.delta_Hs), s=2) 
             plt.xlabel('HMC sweep')
             plt.ylabel('$\exp^{-\delta H}$')
+            plt.hlines(1, 0, self.sweeps[-1], linestyles='-', color='r')
             plt.show()
-            fig.savefig('plots/deltaH_vs_sweeps.pdf')
+            # fig.savefig('plots/deltaH_vs_sweeps.pdf')
 
 
         # print('<exp(-dH)> = %.5f +/- %.5f '%(exp__dH_avg, exp__dH_avg_err))
@@ -336,8 +338,8 @@ class Oscillator():
         # fig.savefig('plots/wavefunction.pdf')
 
 
-    def correlation(self, data, L):
-        '''Computes autocorrelation function (in the sense of a statistician) and integrated auto correlation time for passed data.
+    def correlator(self, data, L):
+        '''Computes autocorrelation function (in the sense of a statistician) and integrated autocorrelation time for passed data.
         Note that the correlation function is the mean covariance between two elements in the data separated by some fixed number of steps t.
         The computed error is thus the standard error on the mean.
         Correlations between elements in the data which are separated by more than L steps in the data array are assumed to be dominated by noise.
@@ -393,29 +395,34 @@ class Oscillator():
         return ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t
 
     
-    def autocorrelation_configs(self, make_plot=False):
-        '''Computes the autocorrelation function between position variables of two configurations in the chain. 
-        Returns the integrated autocorrelation time and its error. For a correctly thinned chain should less than 1. 
+    def autocorrelation(self, make_plot=False):
+        '''Computes the autocorrelation function between position variables of two configurations in the chain.
         Optionally plots the autocorrelation function. 
+
+        Returns
+        int_autocorr_time: float
+            integrated autocorrelation time. For a correctly thinned chain should less than 1.
+        int_autocorr_time_err: float
+            standard error on the mean for the integrated autocorrelation time  
         '''    
-        ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlation(self.xs, 100)
+        ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlator(self.xs, 200)
         # print('Configuration correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
         if make_plot:
             fig = plt.figure(figsize=(12,8))
             plt.errorbar(ts, autocorr_func, yerr=autocorr_func_err, fmt='x', capsize=2)
             plt.yscale('log') # negative vals will not be shown
-            plt.xlim(0,100)
-            plt.xlabel('configuration separation in chain')
+            plt.xlim(0,200)
+            fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
+            plt.xlabel('computer time') # configuration separation in chain
             plt.ylabel('autocorrelation function')
             plt.show()
-            # fig.savefig('plots/autocorrelation_configs.pdf')
+            # fig.savefig('plots/autocorrelation.pdf')
 
-        # print('Configuration tau_int =  %.5f +/- %.5f'%(int_autocorr_time, int_autocorr_time_err))
-        return
+        return int_autocorr_time, int_autocorr_time_err
 
 
-    def correlation_latticesites(self, make_plot=False):
+    def correlation(self, make_plot=False):
         '''Computes the correlation function between two position variables on the lattice and plots it.
         Uses these results to estimate the energy difference between the ground state and first excited state which will be returned.
 
@@ -425,7 +432,7 @@ class Oscillator():
         delta_E_err: float, np.NaN
             error estimate from curve fitting. NaN when energy difference could not be determined due to failed curve fitting
         '''    
-        ts, corr_func, corr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlation(self.xs.T, 100)
+        ts, corr_func, corr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlator(self.xs.T, 10)
         # print('Position correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
         cut = 5 # number of points considered at most for fitting for the exponential decay of corr_func (empirically determined value) 
@@ -450,12 +457,14 @@ class Oscillator():
             fig = plt.figure(figsize=(12,8))
             plt.errorbar(ts, corr_func, yerr=corr_func_err, fmt='x', capsize=2)
             plt.plot(ts[:cut], np.exp(lin_func(ts[:cut], *popt)), label='linear fit')
+            plt.xscale('linear')
+            fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
             plt.yscale('log') # negative vals will not be shown
             plt.xlabel(r'lattice separation [$a$]')
             plt.ylabel('correlation function')
             plt.legend(prop={'size': 12})
             plt.show()
-            # fig.savefig('plots/autocorrelation_latticesites.pdf')
+            # fig.savefig('plots/correlation.pdf')
 
         # print('Position tau_int =  %.5f +/- %.5f'%(int_autocorr_time, int_autocorr_time_err))
         return delta_E, delta_E_err
