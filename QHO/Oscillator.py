@@ -141,8 +141,8 @@ class Oscillator():
         n_acc = 0
 
         # initial random lattice configuration to seed HMC
-        x_samples[0] = np.zeros(self.N) # cold start
-        # x_samples[0] = np.random.uniform(-1, 1, size=self.N) # hot start
+        # x_samples[0] = np.zeros(self.N) # cold start
+        x_samples[0] = np.random.uniform(-1, 1, size=self.N) # hot start
         
         with alive_bar(M) as bar:
             for i in range(1,x_samples.shape[0]):
@@ -163,8 +163,8 @@ class Oscillator():
         
         self.acc_rate = n_acc/(M-start_id)
         t2 = time.time()
-        print('Finished %d HMC steps in %s'%(M,str(timedelta(seconds=t2-t1))))
-        print('Acceptance rate: %.2f%%'%(self.acc_rate*100)) # ideally close to or greater than 65%
+        # print('Finished %d HMC steps in %s'%(M,str(timedelta(seconds=t2-t1))))
+        # print('Acceptance rate: %.2f%%'%(self.acc_rate*100)) # ideally close to or greater than 65%
         
         # remove random starting configuration
         x_samples = np.delete(x_samples, 0, axis=0) 
@@ -220,8 +220,8 @@ class Oscillator():
         if make_plot:
             fig = plt.figure(figsize=(10,8))
             plt.plot(self.sweeps, xm_config_avg)
-            plt.hlines(0.5, 0, self.sweeps[-1], linestyles='-', color='r')
-            plt.xlim(0,self.sweeps[-1])
+            plt.hlines(0.5, self.sweeps[0], self.sweeps[-1], linestyles='-', color='r')
+            plt.xlim(self.sweeps[0],self.sweeps[-1])
             plt.xlabel('HMC sweep')
             plt.ylabel(r'$\langle x^{%d} \rangle$'%m)
             plt.show()
@@ -249,7 +249,7 @@ class Oscillator():
         if make_plot:
             fig = plt.figure(figsize=(10,8))
             plt.scatter(self.sweeps, np.exp(-self.delta_Hs), s=2) 
-            plt.hlines(1, 0, self.sweeps[-1], linestyles='-', color='r')
+            plt.hlines(1, self.sweeps[0], self.sweeps[-1], linestyles='-', color='r')
             # plt.xlim(0,500)
             plt.xlabel('HMC sweep')
             plt.ylabel('$\exp^{-\delta H}$')
@@ -408,7 +408,8 @@ class Oscillator():
         int_autocorr_time_err: float
             standard error on the mean for the integrated autocorrelation time  
         '''    
-        ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlator(self.xs, 200)
+        # note that the value of L passed to self.correlator must be smaller than len(self.sweeps)
+        ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlator(self.xs, 100)
         # print('Configuration correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
         if make_plot:
