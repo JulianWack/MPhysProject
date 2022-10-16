@@ -220,6 +220,8 @@ class Oscillator():
         if make_plot:
             fig = plt.figure(figsize=(10,8))
             plt.plot(self.sweeps, xm_config_avg)
+            plt.hlines(0.5, 0, self.sweeps[-1], linestyles='-', color='r')
+            plt.xlim(0,self.sweeps[-1])
             plt.xlabel('HMC sweep')
             plt.ylabel(r'$\langle x^{%d} \rangle$'%m)
             plt.show()
@@ -247,9 +249,10 @@ class Oscillator():
         if make_plot:
             fig = plt.figure(figsize=(10,8))
             plt.scatter(self.sweeps, np.exp(-self.delta_Hs), s=2) 
+            plt.hlines(1, 0, self.sweeps[-1], linestyles='-', color='r')
+            # plt.xlim(0,500)
             plt.xlabel('HMC sweep')
             plt.ylabel('$\exp^{-\delta H}$')
-            plt.hlines(1, 0, self.sweeps[-1], linestyles='-', color='r')
             plt.show()
             # fig.savefig('plots/deltaH_vs_sweeps.pdf')
 
