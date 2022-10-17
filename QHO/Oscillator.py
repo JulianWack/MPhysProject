@@ -46,9 +46,9 @@ class Oscillator():
         # oscillator parameters
         self.m, self.w  = m, w 
         # lattice parameters
-        self.N, self.a = N, a
+        self.N, self.a = int(N), a
         # leapfrog parameters
-        self.ell, self.eps = ell, eps
+        self.ell, self.eps = int(ell), eps
 
 
     def V(self, x):
@@ -436,7 +436,8 @@ class Oscillator():
         delta_E_err: float, np.NaN
             error estimate from curve fitting. NaN when energy difference could not be determined due to failed curve fitting
         '''    
-        ts, corr_func, corr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlator(self.xs.T, 25)
+        # consider all correlations on the lattice 
+        ts, corr_func, corr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlator(self.xs.T, self.N)
         # print('Position correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
         cut = 5 # number of points considered at most for fitting for the exponential decay of corr_func (empirically determined value) 
@@ -455,7 +456,7 @@ class Oscillator():
         popt, pcov = curve_fit(lin_func, sep, log_rho, sigma=log_rho_err, absolute_sigma=True) # uses chi2 minimization
         # get dimensionless energy difference by introducing factor of a (due to computing correlation depending on index separation rather than separation on the lattice)  
         delta_E = -popt[0] / self.a
-        delta_E_err = pcov[0][0] / self.a
+        delta_E_err = np.sqrt(pcov[0][0]) / self.a
 
         if make_plot:
             fig = plt.figure(figsize=(12,8))
