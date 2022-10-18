@@ -164,7 +164,7 @@ class Oscillator():
         self.acc_rate = n_acc/(M-start_id)
         t2 = time.time()
         # print('Finished %d HMC steps in %s'%(M,str(timedelta(seconds=t2-t1))))
-        # print('Acceptance rate: %.2f%%'%(self.acc_rate*100)) # ideally close to or greater than 65%
+        print('Acceptance rate: %.2f%%'%(self.acc_rate*100)) # ideally close to or greater than 65%
         
         # remove random starting configuration
         x_samples = np.delete(x_samples, 0, axis=0) 
@@ -482,5 +482,5 @@ class Oscillator():
 
         j = 1 # for large N, energy difference hardly changes with j
 
-        E1_E0 = -1/self.a * np.log( (R**2-R**self.N) / (R-R**(self.N-1)) )
+        E1_E0 = -1/self.a * np.log( (R**(j+1)-R**(self.N-j-1)) / (R**j-R**(self.N-j)) )
         return E1_E0
