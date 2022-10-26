@@ -58,9 +58,15 @@ class Oscillator():
 
 
     def dV_dx(self, x):
-        '''Derivative of the potential wrt. dimensionless less position.
+        '''Derivative of the potential wrt. dimensionless position.
         '''
         return self.m * self.w**2 * x
+
+
+    def der_action(self, x):
+        '''Derivative of the action wrt. dimensionless position.
+        '''
+        return 1/self.a * (self.m*(2*x-np.roll(x,1)-np.roll(x,-1)) + self.a**2*self.dV_dx(x))
 
 
     def Ham(self, x, p):
@@ -77,9 +83,25 @@ class Oscillator():
         '''
         K = 0.5*np.sum(p**2)
         # x_{i+1} - x_i for periodic lattice can be quickly computed using np.roll
-        U = self.a*np.sum( 0.5*self.m*((np.roll(x,-1)-x)/self.a)**2 + self.V(x) )
+        S = self.a*np.sum( 0.5*self.m*((np.roll(x,-1)-x)/self.a)**2 + self.V(x) )
 
-        return K + U
+        return K + S
+
+
+    def modified_Ham(self, x, p):
+        '''Analogous to function self.Ham but computes the modified hamiltonian used to accelerate the dynamics.
+        '''
+        K = 0.5/self.N* np.sum( np.abs(np.fft.fft(p))**2 *  self.A )
+        S = self.a*np.sum( 0.5*self.m*((np.roll(x,-1)-x)/self.a)**2 + self.V(x) )
+
+        return K + S
+
+
+    def prod_A_pi(self, p_F):
+        '''Computes the element wise product of the inverse kernel and the momentum in Fourier space.
+        In the literature often written as the element wise product of A and pi.
+        '''
+        return np.multiply(self.A, p_F)
 
 
     def leapfrog(self, x_old, p_old):
@@ -97,121 +119,44 @@ class Oscillator():
             final momentum of simulating Hamiltonian dynamics
         '''
         # half step in p, full step in x
-        p_cur = p_old - 0.5*self.eps/self.a * (self.m*(2*x_old-np.roll(x_old,1)-np.roll(x_old,-1)) + self.a**2*self.dV_dx(x_old))
+        p_cur = p_old - 0.5*self.eps * self.der_action(x_old)
         x_cur = x_old + self.eps*p_cur 
 
         # ell-1 alternating full steps
         for n in range(self.ell):
-            p_cur = p_cur - self.eps/self.a * (self.m*(2*x_cur-np.roll(x_cur,1)-np.roll(x_cur,-1)) + self.a**2*self.dV_dx(x_cur))
+            p_cur = p_cur - self.eps * self.der_action(x_cur)
             x_cur = x_cur + self.eps*p_cur
     
         # half step in p
-        p_cur = p_cur - 0.5*self.eps/self.a * (self.m*(2*x_cur-np.roll(x_cur,1)-np.roll(x_cur,-1)) + self.a**2*self.dV_dx(x_cur))
+        p_cur = p_cur - 0.5*self.eps * self.der_action(x_cur)
 
         return x_cur, p_cur
 
 
-    def run_HMC(self, M, thin_freq, burnin_frac, store_data=False):
-        '''Perform the HMC algorithm to produce lattice configurations (samples) following the PDF appropriate for the considered potential. 
-        Assumes a standard normal distributed momentum.
-        The initial configuration is chosen at random and new candidate samples are produced by simulating Hamiltonian dynamics and accepted vai a Metropolis step.
-        In order keep the correlation between two configurations minimal, only every thin_freq-th accepted configuration will be used in further computations, leading
-        to floor(M/thin_freq) samples. The first M*burnin_frac samples will be declared as burin and thus rejected.
-        M: int
-            number of HMC iterations and thus total number of generated samples
-        thin_freq: int
-            defines thinning frequency. Only every thin-freq-th sample produced will be considered henceforth
-        burin_frac: float
-            fraction of total HMC samples needed for the system to thermalize  
-        store_data: bool
-            store simulation parameters and data    
+    def FA_leapfrog(self, x_old, p_old):
+        '''Analogous to function self.leapfrog but for the modified hamiltonian for which the position update is most efficiently done
+        in Fourier space.
         '''
+        # half step in p and get FT, full step for x
+        p_cur = p_old - 0.5*self.eps * self.der_action(x_old)
+        p_cur_F = np.fft.fft(p_cur)
+        x_cur = x_old + self.eps * np.real( np.fft.ifft(self.prod_A_pi(p_cur_F)) )
 
-        if type(thin_freq) is not int:
-            raise ValueError('The thinning frequency must be an integer.')
-
-        t1 = time.time()
-        # each row is one lattice configuration
-        x_samples = np.empty((M+1, self.N))
-        # difference of Hamiltonian between next and current sample
-        delta_Hs = np.empty(M)
-        # count accepted samples after burn in, set by start_id
-        start_id = int(np.ceil(M*burnin_frac))
-        n_acc = 0
-
-        # initial random lattice configuration to seed HMC
-        # set seed for reproducibility 
-        # np.random.seed(42)
-        # x_samples[0] = np.zeros(self.N) # cold start
-        x_samples[0] = np.random.uniform(-1, 1, size=self.N) # hot start
-        
-        with alive_bar(M) as bar:
-            for i in range(1,x_samples.shape[0]):
-                # start iteration with previous sample
-                x = x_samples[i-1]
-                p = np.random.standard_normal(self.N)
-                x_new, p_new = self.leapfrog(x, p)
-                delta_Hs[i-1] = self.Ham(x_new,-p_new) - self.Ham(x,p)
-                acc_prob = np.min([1, np.exp(-delta_Hs[i-1])])
-
-                if acc_prob > np.random.random():
-                    x_samples[i] = x_new
-                    if i >= start_id:
-                        n_acc += 1 
-                else:
-                    x_samples[i] = x 
-                bar()
+        # ell-1 alternating full steps
+        for n in range(self.ell):
+            p_cur = p_cur - self.eps * self.der_action(x_cur)
+            p_cur_F = np.fft.fft(p_cur)
+            x_cur = x_cur + self.eps * np.real( np.fft.ifft(self.prod_A_pi(p_cur_F)) )
     
-        self.acc_rate = n_acc/(M-start_id)
-        t2 = time.time()
-        # print('Finished %d HMC steps in %s'%(M,str(timedelta(seconds=t2-t1))))
-        print('Acceptance rate: %.2f%%'%(self.acc_rate*100)) # ideally close to or greater than 65%
-        
-        # remove random starting configuration
-        x_samples = np.delete(x_samples, 0, axis=0) 
+        # half step in p
+        p_cur = p_cur - 0.5*self.eps * self.der_action(x_cur)
 
-        # Reject burn in and thin remaining chain to reduce correlation
-        start = start_id+thin_freq-1
-        mask = np.s_[start::thin_freq]
-
-        self.sweeps = np.arange(M)[mask] # indices of HMC iterations in final chain
-        self.xs = x_samples[mask]
-        self.delta_Hs = delta_Hs[mask]
-
-        if store_data:
-            np.save('data/sim_paras.npy', np.array([self.m, self.w, self.N, self.a, self.ell, self.eps]))
-            np.save('data/sweeps.npy', self.sweeps)
-            np.save('data/final_chain.npy', self.xs)
-            np.save('data/dH.npy', self.delta_Hs)
-
-
-##### Acceleration #####
-    def modified_Ham(self, x, p):
-        '''Returns the modified hamiltonian used to accelerate the dynamics.
-        '''
-        K = 0.5/self.N* np.sum( np.abs(np.fft.fft(p))**2 *  self.A )
-        S = self.a*np.sum( 0.5*self.m*((np.roll(x,-1)-x)/self.a)**2 + self.V(x) )
-
-        return K + S
-
-
-    def der_action(self, x):
-        '''Derivative of the action with respect to position.
-        '''
-        return 1/self.a * (self.m*(2*x-np.roll(x,1)-np.roll(x,-1)) + self.a**2*self.dV_dx(x))
-
-
-    def prod_A_pi(self, p_mom):
-        '''Computes the element wise product of the inverse kernel and the momentum in Fourier space.
-        In the literature often written as the element wise product of A and pi.
-        '''
-        return np.multiply(self.A, p_mom)
+        return x_cur, p_cur
 
 
     def p_samples(self):
-        '''Computes num samples of the auxiliary momentum variable, assuming a lattice of even length.
-        num: int
-            number of samples
+        '''Returns real space sample of momenta according to the distribution based on the modified kinetic term in the modified hamiltonian.
+        A lattice of even size is assumed.
 
         Returns
         pi: array
@@ -239,26 +184,6 @@ class Oscillator():
         return pi
 
 
-    def FA_leapfrog(self, x_old, p_old):
-        '''Performs leapfrog scheme with position update being done in Fourier space.
-        '''
-        # half step in p and get FT, full step for x
-        p_cur = p_old - 0.5*self.eps * self.der_action(x_old)
-        p_cur_F = np.fft.fft(p_cur)
-        x_cur = x_old + self.eps * np.real( np.fft.ifft(self.prod_A_pi(p_cur_F)) )
-
-        # ell-1 alternating full steps
-        for n in range(self.ell):
-            p_cur = p_cur - self.eps * self.der_action(x_cur)
-            p_cur_F = np.fft.fft(p_cur)
-            x_cur = x_cur + self.eps * np.real( np.fft.ifft(self.prod_A_pi(p_cur_F)) )
-    
-        # half step in p
-        p_cur = p_cur - 0.5*self.eps * self.der_action(x_cur)
-
-        return x_cur, p_cur
-
-
     def kernel_inv_F(self):
         '''Returns inverse of the action kernel computed in the Fourier space.
         Introducing A becomes useful when dealing with higher dimensions.
@@ -269,8 +194,25 @@ class Oscillator():
         return A
 
 
-    def run_FA_HMC(self, M, thin_freq, burnin_frac, store_data=False):
-        '''    
+    def run_HMC(self, M, thin_freq, burnin_frac, accel=True, store_data=False):
+        '''Perform the HMC algorithm to produce lattice configurations (samples) following the distribution defined by the action. 
+        Using the boolean argument 'accel', one can choose between using the ordinary Hamiltonian for the system (accel=False) or modifying the kinetic term (accel=True) to accelerate the dynamics.
+        In the former case, the auxillary momentum distribution is assumed to be a standard normal, while in the latter case the construction is more involved and implemented in the
+        function self.p_samples. 
+        The initial configuration is obtained from a hot start (hard-coded but can equally use cold start) and new candidate configurations are produced by simulating Hamiltonian dynamics
+        and are accepted or rejected via a Metropolis step.
+        In order keep the correlation between two configurations minimal, only every thin_freq-th accepted configuration will be used in further computations, leading
+        to floor(M/thin_freq) samples. The first M*burnin_frac samples will be declared as burin and thus rejected.
+        M: int
+            number of HMC iterations and thus total number of generated samples
+        thin_freq: int
+            defines thinning frequency. Only every thin-freq-th sample produced will be considered henceforth
+        burin_frac: float
+            fraction of total HMC samples needed for the system to thermalize  
+        accel: bool
+            By default True, indicating to use the Fourier acceleration
+        store_data: bool
+            store simulation parameters and data    
         '''
 
         if type(thin_freq) is not int:
@@ -290,16 +232,23 @@ class Oscillator():
         # np.random.seed(42)
         # x_samples[0] = np.zeros(self.N) # cold start
         x_samples[0] = np.random.uniform(-1, 1, size=self.N) # hot start
-
-        self.A = self.kernel_inv_F()
+        
+        if accel:
+            self.A = self.kernel_inv_F()
 
         with alive_bar(M) as bar:
             for i in range(1,x_samples.shape[0]):
                 # start iteration with previous sample
                 x = x_samples[i-1]
-                p = self.p_samples()
-                x_new, p_new = self.FA_leapfrog(x, p)
-                delta_Hs[i-1] = self.modified_Ham(x_new,p_new) - self.modified_Ham(x,p)
+                if accel:
+                    p = self.p_samples()
+                    x_new, p_new = self.FA_leapfrog(x, p)
+                    delta_Hs[i-1] = self.modified_Ham(x_new,-p_new) - self.modified_Ham(x,p)
+                else:
+                    p = np.random.standard_normal(self.N)
+                    x_new, p_new = self.leapfrog(x, p)
+                    delta_Hs[i-1] = self.Ham(x_new,-p_new) - self.Ham(x,p)
+
                 acc_prob = np.min([1, np.exp(-delta_Hs[i-1])])
 
                 if acc_prob > np.random.random():
@@ -309,7 +258,7 @@ class Oscillator():
                 else:
                     x_samples[i] = x 
                 bar()
-
+    
         self.acc_rate = n_acc/(M-start_id)
         t2 = time.time()
         # print('Finished %d HMC steps in %s'%(M,str(timedelta(seconds=t2-t1))))
@@ -331,7 +280,8 @@ class Oscillator():
             np.save('data/sweeps.npy', self.sweeps)
             np.save('data/final_chain.npy', self.xs)
             np.save('data/dH.npy', self.delta_Hs)
-########################
+
+        return t2-t1
 
 
     def load_data(self):
@@ -363,7 +313,7 @@ class Oscillator():
         First, find the average over time slices within each configuration. Then perform the ensemble average across all configurations to get the moment.
         Optionally, plot the moment for each configuration to get the development of the statistic vs HMC sweeps i.e. MC time.
         '''
-        xm_config_avg = np.mean(self.xs**m, axis=1) # moment in each configuration
+        xm_config_avg = np.mean(self.xs, axis=1)**m # moment in each configuration
         xm_avg = np.mean(xm_config_avg) # ensemble average
         xm_avg_err = np.std(xm_config_avg) / np.sqrt(xm_config_avg.size)
 
@@ -387,6 +337,7 @@ class Oscillator():
         A = self.w * np.sqrt(1 + 1/4*(self.a*self.w)**2)
         R = np.sqrt(1 + (self.a*A)**2) - self.a*A
         return 1/(2*self.m*A) * (1+R**self.N) / (1-R**self.N)
+
 
     def exp__dH(self, make_plot=False):
         '''Computes the average of exp(-dH) and the standard error on the mean. Note that dH = H_new - H_old is the difference of the Hamiltonian between 
@@ -414,10 +365,10 @@ class Oscillator():
     def gs_energy(self):
         '''Computes ground state energy and the standard error on the mean using the Quantum Virial Theorem and is thus only valid for a large lattice.
         '''
-        all_x = self.xs.flatten()
-        data = 1/2*all_x*self.dV_dx(all_x) + self.V(all_x)
-        self.E0_avg = np.mean(data)
-        self.E0_avg_err = np.std(data) / np.sqrt(data.size)
+        x_config_avg = np.mean(self.xs, axis=1) # avg position in each configuration
+        E0_config = 1/2*x_config_avg*self.dV_dx(x_config_avg) + self.V(x_config_avg)
+        self.E0_avg = np.mean(E0_config)
+        self.E0_avg_err = np.std(E0_config) / np.sqrt(E0_config.size)
         #estimate, bias, stderr, conf_interval = jackknife_stats(data, np.mean, 0.95)
         
         # print('GS energy = %.5f +/- %.5f '%(self.E0_avg, self.E0_avg_err))
