@@ -14,7 +14,7 @@ from scipy.optimize import curve_fit
 
 plt.style.use('science')
 plt.rcParams.update({'font.size': 20})
-# plt.rcParams.update({'text.usetex': False}) # faster rendering
+plt.rcParams.update({'text.usetex': False}) # faster rendering
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['k', 'g', 'b', 'r'])
 
 
@@ -57,7 +57,6 @@ class Oscillator():
         return 0.5 * self.m * self.w**2 * x**2
 
 
-    
     def dV_dx(self, x):
         '''Derivative of the potential wrt. dimensionless less position.
         '''
@@ -141,6 +140,8 @@ class Oscillator():
         n_acc = 0
 
         # initial random lattice configuration to seed HMC
+        # set seed for reproducibility 
+        # np.random.seed(42)
         # x_samples[0] = np.zeros(self.N) # cold start
         x_samples[0] = np.random.uniform(-1, 1, size=self.N) # hot start
         
@@ -160,7 +161,7 @@ class Oscillator():
                 else:
                     x_samples[i] = x 
                 bar()
-        
+    
         self.acc_rate = n_acc/(M-start_id)
         t2 = time.time()
         # print('Finished %d HMC steps in %s'%(M,str(timedelta(seconds=t2-t1))))
@@ -182,6 +183,155 @@ class Oscillator():
             np.save('data/sweeps.npy', self.sweeps)
             np.save('data/final_chain.npy', self.xs)
             np.save('data/dH.npy', self.delta_Hs)
+
+
+##### Acceleration #####
+    def modified_Ham(self, x, p):
+        '''Returns the modified hamiltonian used to accelerate the dynamics.
+        '''
+        K = 0.5/self.N* np.sum( np.abs(np.fft.fft(p))**2 *  self.A )
+        S = self.a*np.sum( 0.5*self.m*((np.roll(x,-1)-x)/self.a)**2 + self.V(x) )
+
+        return K + S
+
+
+    def der_action(self, x):
+        '''Derivative of the action with respect to position.
+        '''
+        return 1/self.a * (self.m*(2*x-np.roll(x,1)-np.roll(x,-1)) + self.a**2*self.dV_dx(x))
+
+
+    def prod_A_pi(self, p_mom):
+        '''Computes the element wise product of the inverse kernel and the momentum in Fourier space.
+        In the literature often written as the element wise product of A and pi.
+        '''
+        return np.multiply(self.A, p_mom)
+
+
+    def p_samples(self):
+        '''Computes num samples of the auxiliary momentum variable, assuming a lattice of even length.
+        num: int
+            number of samples
+
+        Returns
+        pi: array
+            samples of the auxillary momentum in real space
+        '''
+        # momenta in Fourier space
+        pi_F = np.zeros(self.N, dtype=complex)
+
+        PI_std = np.sqrt(self.N /  self.A) 
+        PI = np.random.normal(loc=0, scale=PI_std) # returns array that matches shape of PI_std
+
+        # assign special modes for which FT exponential becomes +/-1. To get real pi in real space, the modes must be real themselves.
+        N_2 = int(self.N/2)
+        pi_F[0] = PI[0]
+        pi_F[N_2] = PI[N_2]
+
+        # unpack remaining PI into Fourier space pi
+        pi_F[1:N_2] = 1/np.sqrt(2) * (PI[1:N_2] + 1j * PI[N_2+1:][::-1])
+        # impose hermitean symmetry
+        pi_F[N_2+1:] = np.conj(pi_F[1:N_2][::-1])
+
+        # pi is real by construction
+        pi = np.real(np.fft.ifft(pi_F))
+
+        return pi
+
+
+    def FA_leapfrog(self, x_old, p_old):
+        '''Performs leapfrog scheme with position update being done in Fourier space.
+        '''
+        # half step in p and get FT, full step for x
+        p_cur = p_old - 0.5*self.eps * self.der_action(x_old)
+        p_cur_F = np.fft.fft(p_cur)
+        x_cur = x_old + self.eps * np.real( np.fft.ifft(self.prod_A_pi(p_cur_F)) )
+
+        # ell-1 alternating full steps
+        for n in range(self.ell):
+            p_cur = p_cur - self.eps * self.der_action(x_cur)
+            p_cur_F = np.fft.fft(p_cur)
+            x_cur = x_cur + self.eps * np.real( np.fft.ifft(self.prod_A_pi(p_cur_F)) )
+    
+        # half step in p
+        p_cur = p_cur - 0.5*self.eps * self.der_action(x_cur)
+
+        return x_cur, p_cur
+
+
+    def kernel_inv_F(self):
+        '''Returns inverse of the action kernel computed in the Fourier space.
+        Introducing A becomes useful when dealing with higher dimensions.
+        '''
+        k = np.arange(0, self.N) # lattice in Fourier space
+        A = (self.m/self.a * (4*np.sin(np.pi * k/self.N)**2 + (self.a*self.w)**2) )**(-1)
+
+        return A
+
+
+    def run_FA_HMC(self, M, thin_freq, burnin_frac, store_data=False):
+        '''    
+        '''
+
+        if type(thin_freq) is not int:
+            raise ValueError('The thinning frequency must be an integer.')
+
+        t1 = time.time()
+        # each row is one lattice configuration
+        x_samples = np.empty((M+1, self.N))
+        # difference of Hamiltonian between next and current sample
+        delta_Hs = np.empty(M)
+        # count accepted samples after burn in, set by start_id
+        start_id = int(np.ceil(M*burnin_frac))
+        n_acc = 0
+
+        # initial random lattice configuration to seed HMC
+        # set seed for reproducibility 
+        # np.random.seed(42)
+        # x_samples[0] = np.zeros(self.N) # cold start
+        x_samples[0] = np.random.uniform(-1, 1, size=self.N) # hot start
+
+        self.A = self.kernel_inv_F()
+
+        with alive_bar(M) as bar:
+            for i in range(1,x_samples.shape[0]):
+                # start iteration with previous sample
+                x = x_samples[i-1]
+                p = self.p_samples()
+                x_new, p_new = self.FA_leapfrog(x, p)
+                delta_Hs[i-1] = self.modified_Ham(x_new,p_new) - self.modified_Ham(x,p)
+                acc_prob = np.min([1, np.exp(-delta_Hs[i-1])])
+
+                if acc_prob > np.random.random():
+                    x_samples[i] = x_new
+                    if i >= start_id:
+                        n_acc += 1 
+                else:
+                    x_samples[i] = x 
+                bar()
+
+        self.acc_rate = n_acc/(M-start_id)
+        t2 = time.time()
+        # print('Finished %d HMC steps in %s'%(M,str(timedelta(seconds=t2-t1))))
+        print('Acceptance rate: %.2f%%'%(self.acc_rate*100)) # ideally close to or greater than 65%
+        
+        # remove random starting configuration
+        x_samples = np.delete(x_samples, 0, axis=0) 
+
+        # Reject burn in and thin remaining chain to reduce correlation
+        start = start_id+thin_freq-1
+        mask = np.s_[start::thin_freq]
+
+        self.sweeps = np.arange(M)[mask] # indices of HMC iterations in final chain
+        self.xs = x_samples[mask]
+        self.delta_Hs = delta_Hs[mask]
+
+        if store_data:
+            np.save('data/sim_paras.npy', np.array([self.m, self.w, self.N, self.a, self.ell, self.eps]))
+            np.save('data/sweeps.npy', self.sweeps)
+            np.save('data/final_chain.npy', self.xs)
+            np.save('data/dH.npy', self.delta_Hs)
+########################
 
 
     def load_data(self):
