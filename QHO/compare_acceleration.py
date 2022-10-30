@@ -98,31 +98,34 @@ def fit_log_tau(x, tau, tau_err):
     return fit, z, z_err
 
 
-# make plots
-fig, (ax_time, ax_tau) = plt.subplots(1, 2, figsize=(20,6))
+# make CPU time plot
+fig = plt.figure(figsize=(8,6))
 
-ax_time.scatter(a_s, CPU_time_ratio, marker='x')
-ax_time.plot(a_s, CPU_time_ratio)
-ax_time.set_xscale('log')
-ax_time.set_xlabel('a')
-ax_time.set_ylabel(r'$T_{accel}/T_{no\:accel}$')
+plt.scatter(a_s, CPU_time_ratio, marker='x')
+plt.plot(a_s, CPU_time_ratio)
+plt.xscale('log')
+plt.xlabel('a')
+plt.ylabel(r'$T_{accel}/T_{no\:accel}$')
+
+#plt.show()
+fig.savefig('plots/compare_accel/comp_time.pdf')
 
 
+# make critical exponent plot
+fig = plt.figure(figsize=(8,6))
 no_accel_fit, no_accel_z, no_accel_z_err = fit_log_tau(a_s, no_accel_tau, no_accel_tau_err) 
 accel_fit, accel_z, accel_z_err = fit_log_tau(a_s, accel_tau, accel_tau_err)
 
-ax_tau.errorbar(a_s, no_accel_tau, yerr=no_accel_tau_err, fmt='x', capsize=2, color='g', label=r'HMC: $z = %.3f \pm %.3f$'%(no_accel_z, no_accel_z_err))
-ax_tau.plot(a_s, no_accel_tau, color='g')
-ax_tau.errorbar(a_s, accel_tau, yerr=accel_tau_err, fmt='x', capsize=2, color='b', label=r'FA HMC: $z = %.3f \pm %.3f$'%(accel_z, accel_z_err))
-ax_tau.plot(a_s, accel_tau, color='b')
+plt.errorbar(a_s, no_accel_tau, yerr=no_accel_tau_err, fmt='x', capsize=2, color='g', label=r'HMC: $z = %.3f \pm %.3f$'%(no_accel_z, no_accel_z_err))
+plt.plot(a_s, no_accel_tau, color='g')
+plt.errorbar(a_s, accel_tau, yerr=accel_tau_err, fmt='x', capsize=2, color='b', label=r'FA HMC: $z = %.3f \pm %.3f$'%(accel_z, accel_z_err))
+plt.plot(a_s, accel_tau, color='b')
 
-ax_tau.set_xscale('log')
-ax_tau.set_yscale('log')
-ax_tau.set_xlabel('a')
-ax_tau.set_ylabel(r'$\tau_{int}$')
-ax_tau.legend(prop={'size': 12})
+plt.xscale('log')
+plt.yscale('log')
+plt.xlabel('a')
+plt.ylabel(r'$\tau_{int}$')
+plt.legend(prop={'size': 12})
 
-
-fig.tight_layout()
-plt.show()
-fig.savefig('plots/compare_accel/time_and_crit_exp.pdf')
+#plt.show()
+fig.savefig('plots/compare_accel/crit_exp.pdf')

@@ -44,7 +44,7 @@ for i, a in enumerate(a_s):
     good_acc_rate = False
     while good_acc_rate == False:
         QHO = Oscillator(m, w, N, a, ell, eps)
-        QHO.run_HMC(100000, 15, 0.1, store_data=False)
+        QHO.run_HMC(100000, 15, 0.1, accel=False, store_data=False)
         acc_rate = QHO.acc_rate
         # if acceptance rate outwith desired range, adjust step size by +/- 10% and run again 
         if acc_rate < 0.6:
@@ -92,10 +92,28 @@ np.save('data/vary_a/E1_E0_err', E1_E0_errs)
 np.save('data/vary_a/E1_E0_dis', E1_E0s_dis)
 np.save('data/vary_a/E1_E0_cts', E1_E0s_cts)
 
+# # load data
+# paras_record = np.loadtxt('data/vary_a/paras')
+
+# x2s = np.load('data/vary_a/x2.npy')
+# x2_errs = np.load('data/vary_a/x2_err.npy')
+# x2s_dis = np.load('data/vary_a/x2_dis.npy')
+# x2s_cts = np.load('data/vary_a/x2_cts.npy')
+
+# E0s = np.load('data/vary_a/E0.npy')
+# E0_errs = np.load('data/vary_a/E0_err.npy')
+# E0s_dis = np.load('data/vary_a/E0_dis.npy')
+# E0s_cts = np.load('data/vary_a/E0_cts.npy')
+
+# E1_E0s = np.load('data/vary_a/E1_E0.npy')
+# E1_E0_errs = np.load('data/vary_a/E1_E0_err.npy')
+# E1_E0s_dis = np.load('data/vary_a/E1_E0_dis.npy')
+# E1_E0s_cts = np.load('data/vary_a/E1_E0_cts.npy')
+
 
 # make plots 
 # simulation parameters
-fig, (ax_traj_len, ax_acc_rate, ax_tau_int) =  plt.subplots(1, 3, figsize=(24,6))
+fig, (ax_traj_len, ax_acc_rate, ax_tau_int) =  plt.subplots(1, 3, figsize=(20,6))
 
 ax_traj_len.scatter(a_s, paras_record[:,3], marker='x')
 ax_traj_len.plot(a_s, paras_record[:,3])

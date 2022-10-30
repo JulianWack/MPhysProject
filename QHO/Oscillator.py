@@ -14,7 +14,7 @@ from scipy.optimize import curve_fit
 
 plt.style.use('science')
 plt.rcParams.update({'font.size': 20})
-plt.rcParams.update({'text.usetex': False}) # faster rendering
+# plt.rcParams.update({'text.usetex': False}) # faster rendering
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['k', 'g', 'b', 'r'])
 
 
@@ -260,7 +260,7 @@ class Oscillator():
                 bar()
     
         self.acc_rate = n_acc/(M-start_id)
-        t2 = time.time()
+        self.time = t1-time.time()
         # print('Finished %d HMC steps in %s'%(M,str(timedelta(seconds=t2-t1))))
         print('Acceptance rate: %.2f%%'%(self.acc_rate*100)) # ideally close to or greater than 65%
         
@@ -281,8 +281,6 @@ class Oscillator():
             np.save('data/final_chain.npy', self.xs)
             np.save('data/dH.npy', self.delta_Hs)
 
-        return t2-t1
-
 
     def load_data(self):
         '''Loads in data from previous simulation.
@@ -299,7 +297,7 @@ class Oscillator():
         sample = self.xs[10] # arbitrary choice
         ts = np.arange(0, self.N*self.eps, self.eps) # integration_time
 
-        fig = plt.figure(figsize=(8,8))
+        fig = plt.figure(figsize=(6,6))
         plt.scatter(sample, ts, marker='x')
         plt.plot(sample, ts)
         plt.xlabel('x')
@@ -313,15 +311,14 @@ class Oscillator():
         First, find the average over time slices within each configuration. Then perform the ensemble average across all configurations to get the moment.
         Optionally, plot the moment for each configuration to get the development of the statistic vs HMC sweeps i.e. MC time.
         '''
-        xm_config_avg = np.mean(self.xs, axis=1)**m # moment in each configuration
+        xm_config_avg = np.mean(self.xs**m, axis=1) # moment in each configuration
         xm_avg = np.mean(xm_config_avg) # ensemble average
         xm_avg_err = np.std(xm_config_avg) / np.sqrt(xm_config_avg.size)
 
         if make_plot:
-            fig = plt.figure(figsize=(10,8))
+            fig = plt.figure(figsize=(8,6))
             plt.plot(self.sweeps, xm_config_avg)
             plt.hlines(0.5, self.sweeps[0], self.sweeps[-1], linestyles='-', color='r')
-            plt.xlim(self.sweeps[0],self.sweeps[-1])
             plt.xlabel('HMC sweep')
             plt.ylabel(r'$\langle x^{%d} \rangle$'%m)
             plt.show()
@@ -348,10 +345,9 @@ class Oscillator():
         exp__dH_avg_err = np.std(np.exp(-self.delta_Hs)) / np.sqrt(exp__dH_avg.size)
 
         if make_plot:
-            fig = plt.figure(figsize=(10,8))
+            fig = plt.figure(figsize=(8,6))
             plt.scatter(self.sweeps, np.exp(-self.delta_Hs), s=2) 
             plt.hlines(1, self.sweeps[0], self.sweeps[-1], linestyles='-', color='r')
-            # plt.xlim(0,500)
             plt.xlabel('HMC sweep')
             plt.ylabel('$\exp^{-\delta H}$')
             plt.show()
@@ -397,7 +393,7 @@ class Oscillator():
             '''analytic wave function from continuous theory'''
             return (self.m*self.w/np.pi)**(0.25) * np.exp(-0.5*self.m*self.w*x**2)
 
-        fig, (ax_wavefunc, ax_residual) = plt.subplots(2, 1, figsize=(8,8), sharex=True, gridspec_kw={'height_ratios': [1, 0.5]})
+        fig, (ax_wavefunc, ax_residual) = plt.subplots(2, 1, figsize=(8,6), sharex=True, gridspec_kw={'height_ratios': [1, 0.5]})
 
         # split data into chunks and make histogram with the same number of bins for each
         # can thus find average and std for each bin hight  
@@ -510,14 +506,13 @@ class Oscillator():
             standard error on the mean for the integrated autocorrelation time  
         '''    
         # note that the value of L passed to self.correlator must be smaller than len(self.sweeps)
-        ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlator(self.xs, 100)
+        ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlator(self.xs, 150)
         # print('Configuration correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
         if make_plot:
-            fig = plt.figure(figsize=(12,8))
+            fig = plt.figure(figsize=(8,6))
             plt.errorbar(ts, autocorr_func, yerr=autocorr_func_err, fmt='x', capsize=2)
             plt.yscale('log') # negative vals will not be shown
-            plt.xlim(0,200)
             fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
             plt.xlabel('computer time') # configuration separation in chain
             plt.ylabel('autocorrelation function')
@@ -560,10 +555,11 @@ class Oscillator():
         delta_E_err = np.sqrt(pcov[0][0]) / self.a
 
         if make_plot:
-            fig = plt.figure(figsize=(12,8))
+            fig = plt.figure(figsize=(8,6))
             plt.errorbar(ts, corr_func, yerr=corr_func_err, fmt='x', capsize=2)
             plt.plot(ts[:cut], np.exp(lin_func(ts[:cut], *popt)), label='linear fit')
             fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
+            plt.xlim(0,18)
             plt.yscale('log') # negative vals will not be shown
             plt.xlabel(r'lattice separation [$a$]')
             plt.ylabel('correlation function')
