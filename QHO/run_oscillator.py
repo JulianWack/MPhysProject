@@ -7,7 +7,7 @@ w = 1
 N = 100
 a = 1
 ell = 10
-eps = 0.2
+eps = 0.1
 
 
 QHO = Oscillator(m, w, N, a, ell, eps)

@@ -9,7 +9,7 @@ import time
 from datetime import timedelta
 from alive_progress import alive_bar
 from scipy.optimize import curve_fit
-#from astropy.stats import jackknife_stats
+from astropy.stats import jackknife_stats
 
 
 plt.style.use('science')
@@ -229,7 +229,7 @@ class Oscillator():
 
         # initial random lattice configuration to seed HMC
         # set seed for reproducibility 
-        # np.random.seed(42)
+        np.random.seed(42)
         # x_samples[0] = np.zeros(self.N) # cold start
         x_samples[0] = np.random.uniform(-1, 1, size=self.N) # hot start
         
@@ -438,61 +438,78 @@ class Oscillator():
         # fig.savefig('plots/wavefunction.pdf')
 
 
-    def correlator(self, data, L):
-        '''Computes autocorrelation function (in the sense of a statistician) and integrated autocorrelation time for passed data.
-        Note that the correlation function is the mean covariance between two elements in the data separated by some fixed number of steps t.
-        The computed error is thus the standard error on the mean.
-        Correlations between elements in the data which are separated by more than L steps in the data array are assumed to be dominated by noise.
-        data: 1D array
-            Data to be correlated 
-        L: int
-            maximal length of considered correlations
+    def correlator(self, data, my_upper=None):
+        '''Computes autocorrelation function (ACF) (in the sense of a statistician) and integrated autocorrelation time (IAT) for passed data.
+        The covariance function (related to the ACF by a normalization) is the mean covariance between two elements in the data separated by some number of steps t.
+        After some separation, the correlation between two elements becomes noise dominated which is assumed to be the case once the auto covariance turns negative for the first time
+        unless a manual value for the upper bound is passed. This defines the range over which the ACF is computed. 
+        The naive standard error is used to estimate the error of the ACF. IAT and its error are found based on Joseph section 7.1.
+        data: 2D array
+            each row represents a sample of a random variable whose correlation we seek to find 
+        my_upper: int
+            optional; manual value of largest separation for which correlations are assumed to be signal dominated  
 
         Returns
         ts: array
             array of considered separations between two variables
-        autocorr_func: array
-            autocorrelation function for spacings 0,1,...L-1
-        autocorr_func_err:
-            standard error of the mean of the autocorrelation function
-        int_autocorr_time: float
-            integrated autocorrelation time, showing the number of steps needed in the chain until elements become uncorrelated
-        int_autocorr_time_err: float
-            standard error on the mean of the autocorrelation time
+        ACF: array
+            autocorrelation function
+        ACF_err:
+            error of the autocorrelation function
+        IAT: float
+            integrated autocorrelation time, showing how many rows in the data lie between uncorrelated samples
+        IAT_err: float
+            error of the autocorrelation time
         delta_t: float
-            time needed to compute the autocorrelation function and the integrated autocorrelation time
+            time needed to compute the ACF and the IAT
         '''
         def cov(i,t):
             return np.mean(data[i]*data[i+t]) - np.mean(data[i])*np.mean(data[i+t])
         
-        ts = np.arange(0, L) # considered spacings between two elements of the data
-        autocov_func = np.full(L, np.nan) 
-        autocov_func_err = np.full(L, np.nan) 
+        num = int(data.shape[0]) # number of observations
+        ts = np.arange(0, num) # considered separations of between two observations
+        if my_upper is None:
+            upper = num # largest separation for which correlation is data dominated; estimated below
+        else:
+            upper = my_upper
+
+        autocov_func = np.zeros(num) 
+        autocov_func_err = np.zeros(num) 
 
         t1 = time.time()
         for t in ts:
-            covariances = [cov(i,t) for i in range(0,L-t)]
-            if len(covariances) == 0:
-                break
-            autocov_func[t] = np.mean(covariances)
-            autocov_func_err[t] = np.std(covariances) / np.sqrt(len(covariances))
+            if (my_upper is not None) & (t == my_upper):
+                break 
 
-        autocorr_func = autocov_func / autocov_func[0]
-        autocorr_func_err = autocov_func_err / autocov_func[0]
+            covariances = np.array([cov(i,t) for i in range(0,num-t)])
+            autocov = np.mean(covariances)
+            autocov_err = np.std(covariances) / np.sqrt(len(covariances))
+
+            if (my_upper is None) & (autocov < 0):
+                upper = t # should be much larger than IAT
+                break
+
+            autocov_func[t], autocov_func_err[t] = autocov, autocov_err
+
+        # autocorrelation function and its error on signal dominated range of observation separations
+        ACF = (autocov_func / autocov_func[0])[:upper]
+        ACF_err = (autocov_func_err / autocov_func[0])[:upper]
+        ts = ts[:upper]
       
-        int_autocorr_time = 0.5
-        break_idx = -1
-        for t in ts:
-            if t >= np.ceil(4*int_autocorr_time+1):
-                break_idx = t
-                break
-            int_autocorr_time += autocorr_func[t]
+        IATs = 1/2 + np.cumsum(ACF) # possible autocorrelation times when halting the computation at different separations
+        # find biggest separation contributing to IAT according to Joseph eq 7.9. argmax picks finds first occurrence when condition yields True
+        # when condition never true, argmax returns 0 (array of False, so first occurrence of largest value is at 0). In this case want to consider all possible contribution to IAT_err
+        break_idx = np.argmax(ts >= np.ceil(4*IATs+1))
+        if break_idx == 0:
+            break_idx = upper-1
+            
+        IAT = IATs[break_idx]
+        IAT_err = np.sqrt((4*break_idx+2)/data.shape[0]) * IAT
 
-        int_autocorr_time_err = np.sum(autocov_func_err[:break_idx])
         t2 = time.time()
         delta_t = t2-t1
 
-        return ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t
+        return ts, ACF, ACF_err, IAT, IAT_err, delta_t
 
     
     def autocorrelation(self, make_plot=False):
@@ -505,13 +522,12 @@ class Oscillator():
         int_autocorr_time_err: float
             standard error on the mean for the integrated autocorrelation time  
         '''    
-        # note that the value of L passed to self.correlator must be smaller than len(self.sweeps)
-        ts, autocorr_func, autocorr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlator(self.xs, 150)
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = self.correlator(self.xs)
         # print('Configuration correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
         if make_plot:
             fig = plt.figure(figsize=(8,6))
-            plt.errorbar(ts, autocorr_func, yerr=autocorr_func_err, fmt='x', capsize=2)
+            plt.errorbar(ts, ACF, yerr=ACF_err, fmt='x', capsize=2)
             plt.yscale('log') # negative vals will not be shown
             fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
             plt.xlabel('computer time') # configuration separation in chain
@@ -519,7 +535,7 @@ class Oscillator():
             plt.show()
             # fig.savefig('plots/autocorrelation.pdf')
 
-        return int_autocorr_time, int_autocorr_time_err
+        return IAT, IAT_err
 
 
     def correlation(self, make_plot=False):
@@ -533,7 +549,7 @@ class Oscillator():
             error estimate from curve fitting. NaN when energy difference could not be determined due to failed curve fitting
         '''    
         # consider all correlations on the lattice 
-        ts, corr_func, corr_func_err, int_autocorr_time, int_autocorr_time_err, delta_t = self.correlator(self.xs.T, self.N)
+        ts, corr_func, corr_func_err, IAT, IAT_err, delta_t = self.correlator(self.xs.T, self.N)
         # print('Position correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
         cut = 5 # number of points considered at most for fitting for the exponential decay of corr_func (empirically determined value) 
