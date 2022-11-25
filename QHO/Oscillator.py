@@ -438,14 +438,16 @@ class Oscillator():
         # fig.savefig('plots/wavefunction.pdf')
 
 
-    def correlator(self, data, my_upper=None):
+    def correlator(self, data, c=4.0, my_upper=None):
         '''Computes autocorrelation function (ACF) (in the sense of a statistician) and integrated autocorrelation time (IAT) for passed data.
         The covariance function (related to the ACF by a normalization) is the mean covariance between two elements in the data separated by some number of steps t.
         After some separation, the correlation between two elements becomes noise dominated which is assumed to be the case once the auto covariance turns negative for the first time
         unless a manual value for the upper bound is passed. This defines the range over which the ACF is computed. 
-        The naive standard error is used to estimate the error of the ACF. IAT and its error are found based on Joseph section 7.1.
+        The naive standard error is used to estimate the error of the ACF. IAT is found following Caracciolo and Sokal 1986 and the expression for the error is from Madras and Sokal 1988.
         data: 2D array
             each row represents a sample of a random variable whose correlation we seek to find 
+        c: int
+            optional; parameter to use in Caracciolo's and Sokal's windowing procedure 
         my_upper: int
             optional; manual value of largest separation for which correlations are assumed to be signal dominated  
 
@@ -496,13 +498,81 @@ class Oscillator():
         ACF_err = (autocov_func_err / autocov_func[0])[:upper]
         ts = ts[:upper]
       
-        IATs = 1/2 + np.cumsum(ACF) # possible autocorrelation times when halting the computation at different separations
-        # find biggest separation contributing to IAT according to Joseph eq 7.9. argmax picks finds first occurrence when condition yields True
-        # when condition never true, argmax returns 0 (array of False, so first occurrence of largest value is at 0). In this case want to consider all possible contribution to IAT_err
-        break_idx = np.argmax(ts >= np.ceil(4*IATs+1))
-        if break_idx == 0:
-            break_idx = upper-1
-            
+        # possible autocorrelation times when halting the computation at different separations
+        IATs = 2*np.cumsum(ACF) - 1 # IAT defined as 1 + sum starting from separation=1, but cumsum starts with t=0 for which ACF=1
+        break_idx = self.auto_window(IATs, c)
+        IAT = IATs[break_idx]
+        IAT_err = np.sqrt((4*break_idx+2)/data.shape[0]) * IAT
+
+        t2 = time.time()
+        delta_t = t2-t1
+
+        return ts, ACF, ACF_err, IAT, IAT_err, delta_t
+
+
+    def auto_window(self, IATs, c):
+        '''Windowing procedure of Caracciolo, Sokal 1986.
+        IATs is array of integrated autocorrelation time when terminated at different separations.
+        Returns index of deduced IAT in array IATs
+        ''' 
+        ts = np.arange(len(IATs)) # all possible separation endpoints
+        m =  ts < c * IATs # first occurrence where this is false gives IAT 
+        if np.any(m):
+            return np.argmin(m)
+        return len(IATs) - 1
+
+
+    def autocorr_func_1d(self, x):
+        '''Computes the autocorrelation of a 1D array x using FFT and the Wiener Khinchin theorem.
+        As FFTs yield circular convolutions and work most efficiently when the number of elements is a power of 2, pad the data with zeros to the next power of 2. 
+        '''
+        x = np.atleast_1d(x)
+        if len(x.shape) != 1:
+            raise ValueError("invalid dimensions for 1D autocorrelation function")
+
+        def next_pow_two(n):
+            i = 1
+            while i < n:
+                i = i << 1 # shifts bits to the left by one position i.e. multiplies by 2 
+            return i
+        
+        n = next_pow_two(len(x))
+
+        # Compute the FFT and then (from that) the auto-correlation function
+        f = np.fft.fft(x - np.mean(x), n=2 * n)
+        acf = np.fft.ifft(f * np.conjugate(f))[: len(x)].real
+        acf /= 4 * n
+        # normalize to get autocorrelation rather than autocovariance
+        acf /= acf[0]
+
+        return acf
+
+    def correlator_fast(self, data, c=4.0):
+        '''A faster alternative to self.correlator using FFTs.
+        Based on the implementation in emcee: https://emcee.readthedocs.io/en/stable/tutorials/autocorr/
+
+        data: 2D array
+            each row represents a new sample of correlated observations. Hence data here is data.T in self.correlator
+            The autocovariance is computed for each row and the final ACF is estimated as the average of those. 
+            An alternative would be to average the rows first and estimate the AFC as the autocovariance of that array (Goodman, Weare 2010)
+
+        Returns same quatities as self.correlator
+        '''
+        data = data.T # to ensure consistency with self.correlator
+
+        ts = np.arange(data.shape[0])
+        t1 = time.time()
+
+        # get ACF and its error
+        ACFs = np.zeros_like(data)
+        for i,row in enumerate(data):
+            ACFs[i] = self.autocorr_func_1d(row)
+        ACF = np.mean(ACFs, axis=0)
+        ACF_err = np.std(ACFs, axis=0) / np.sqrt(data.shape[0])
+
+        # get all possible IAT and apply windowing
+        IATs = 2.0 * np.cumsum(ACF) - 1.0
+        break_idx = self.auto_window(IATs, c)
         IAT = IATs[break_idx]
         IAT_err = np.sqrt((4*break_idx+2)/data.shape[0]) * IAT
 
@@ -522,7 +592,7 @@ class Oscillator():
         int_autocorr_time_err: float
             standard error on the mean for the integrated autocorrelation time  
         '''    
-        ts, ACF, ACF_err, IAT, IAT_err, delta_t = self.correlator(self.xs)
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = self.correlator_fast(self.xs)
         # print('Configuration correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
         if make_plot:
@@ -549,7 +619,8 @@ class Oscillator():
             error estimate from curve fitting. NaN when energy difference could not be determined due to failed curve fitting
         '''    
         # consider all correlations on the lattice 
-        ts, corr_func, corr_func_err, IAT, IAT_err, delta_t = self.correlator(self.xs.T, self.N)
+        ts, corr_func, corr_func_err, IAT, IAT_err, delta_t = self.correlator_fast(self.xs.T)
+        # ts, corr_func, corr_func_err, IAT, IAT_err, delta_t = self.correlator(self.xs.T, my_upper=self.N) # uses navive correlator implementation
         # print('Position correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
         cut = 5 # number of points considered at most for fitting for the exponential decay of corr_func (empirically determined value) 
