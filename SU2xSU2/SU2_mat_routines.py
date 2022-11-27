@@ -72,7 +72,7 @@ def renorm(a):
 
 
 ### combining two SU(2) matrices ### 
-def SU2_dot(a, b):
+def dot(a, b):
     '''Computes matrix product A.B when matrices A and B have associated parameter vectors a and b.
     '''
     c0 = a[0]*b[0] - np.sum(a[1:]*b[1:])
@@ -84,7 +84,7 @@ def SU2_dot(a, b):
     return c
 
 
-def SU2_sum(a, b):
+def sum(a, b):
     '''Computes sum of two SU(2) matrices A and B with associated parameter vectors a and b.
     Let C = A + B, i.e. c = a + b. 
     Note that the sum of two SU(2) matrices is proportional to an SU(2) matrix with proportionality constant k, meaning

@@ -1,6 +1,6 @@
 import numpy as np
 import timeit
-from SU2_matrix import *
+import SU2_mat_routines as SU2
 
 
 ##### Check if my matrix routine gives same result as np #####
@@ -9,8 +9,8 @@ def test_SU2_mat():
     aa = 10*np.random.random(4)
     bb = -66.8*np.random.random(4)
 
-    my_A = SU2_mat(aa)
-    my_B = SU2_mat(bb)
+    my_A = aa
+    my_B = bb
 
     def make_np_mat(a):
         return np.matrix( [[a[0]+1j*a[3], a[2]+1j*a[1]], [-a[2]+1j*a[1], a[0]-1j*a[3]]] )
@@ -18,15 +18,15 @@ def test_SU2_mat():
     np_A = make_np_mat(aa)
     np_B = make_np_mat(bb)
 
-    my_C = SU2_dot(my_A, my_B).make_mat()
+    my_C = SU2.make_mat( SU2.dot(my_A, my_B) )
     np_C = np.matmul(np_A, np_B)
 
     # need to convert np.matrix object into ndarray (via .A) for allclose comparison 
     print('Same matrix product: ', np.allclose(my_C.A, np_C.A))
-    my_hc = my_A.hc().make_mat()
+    my_hc = SU2.make_mat(SU2.hc(my_A))
     print('Same hc: ', np.allclose(my_hc.A, np_A.H.A))
-    print('Same det: ', np.allclose(my_A.det(), np.linalg.det(np_A.A).real))
-    print('Same trace: ', np.allclose(my_A.tr(), np.trace(np_A.A).real))
+    print('Same det: ', np.allclose(SU2.det(my_A), np.linalg.det(np_A.A).real))
+    print('Same trace: ', np.allclose(SU2.tr(my_A), np.trace(np_A.A).real))
 
 
     ##### Compare speed of matrix multiplication #####
@@ -35,17 +35,17 @@ def test_SU2_mat():
 
     set_up = '''
 import numpy as np
-from SU2_matrix import SU2_mat, SU2_dot
+import SU2_mat_routines as SU2
 '''
 
     my_test_code = ''' 
 aa = np.random.random(4)
 bb = np.random.random(4)
 
-my_A = SU2_mat(aa)
-my_B = SU2_mat(bb)
+my_A = aa
+my_B = bb
 
-SU2_dot(my_A, my_B)
+SU2.dot(my_A, my_B)
 '''
 
     np_test_code = '''
