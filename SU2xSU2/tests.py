@@ -136,3 +136,55 @@ np.matmul(np_A, np_B)
     print('np product: ', timeit.timeit(setup=set_up, stmt=np_test_code, number=n_iter))
 
 # test_SU2_prod_speed()
+########
+
+
+##### Check that my nearest neighbor construction and indexing works #####
+def test_NN():
+    N = 4 # number of lattice sites
+    M = 2 # For readability, suppose matrix at each lattice site is described by M=2 parameters
+    phi = np.empty((N,N,M))
+
+    # asign arbitary parameter values
+    phi[:,:,0] = np.arange(N**2).reshape((N,N))
+    phi[:,:,1] = -np.arange(N**2).reshape((N,N))
+
+    # make a (N,N,2) array storing the row and col indices of each lattice sites
+    grid = np.indices((N,N)) # shape (2,N,N)
+    lattice_coords = grid.transpose(1,2,0) # turns axis i of grid into axis j of idxs when axis i listed at position j; shape (N,N,2)
+
+    # shift lattice coordinates by 1 such that the coordinates at (i,j) are those of the right, left, top, and bottom neighbor of lattice site (i,j); shape (N,N,2)
+    # rolling axis=1 by -1 means all columns are moved one step to the left with periodic bcs. Hence value of resulting array at (i,j) is (i,j+1), i.e the coordinates of the right neighbor.
+    right_n = np.roll(lattice_coords, -1, axis=1)
+    left_n = np.roll(lattice_coords, 1, axis=1)
+    top_n = np.roll(lattice_coords, 1, axis=0)
+    bottom_n = np.roll(lattice_coords, -1, axis=0)
+
+    # for each lattice site, for each neighbor, store row and col coord
+    NN = np.empty((N,N,4,2), dtype=int)
+    NN[:,:,0,:] = right_n # row and col indices of right neighbors
+    NN[:,:,1,:] = left_n
+    NN[:,:,2,:] = top_n
+    NN[:,:,3,:] = bottom_n
+
+    # make mask to apply to phi and get NN parameters
+    # separate the row and column neighbor coordinates for each lattice site to use in indexing of phi
+    # (N,N,4,1): all x-sites, all y-sites, all neighbors, only row coords or only col coords
+    NN_rows = NN[:,:,:,0]
+    NN_cols = NN[:,:,:,1]
+    NN_mask = (NN_rows, NN_cols)
+
+    # single test: 
+    # find matrix parameters of the neighbors of site (0,0)
+    one_neighbor_paras = phi[NN_mask][0,0]
+    print(one_neighbor_paras)
+
+    # full test:
+    # find matrix parameters of the neighbors of site every lattice site (gives 4 sets of parameters for every site)
+    all_neighbor_paras = phi[NN_mask] # (N,N,4,# paras)
+    print(all_neighbor_paras)
+
+    # example of how to perform matrix operations between NN at each lattice site simultaneously
+    print(np.sum(all_neighbor_paras, axis=3)) 
+
+# test_NN()
