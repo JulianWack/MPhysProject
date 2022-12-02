@@ -1,6 +1,7 @@
 import numpy as np
 import timeit
 import SU2_mat_routines as SU2
+from SU2xSU2 import SU2xSU2
 
 
 ##### Check if my matrix routine gives same result as np #####
@@ -188,3 +189,35 @@ def test_NN():
     print(np.sum(all_neighbor_paras, axis=3)) 
 
 # test_NN()
+
+
+##### Check that leapfrog is reversible #####
+def test_leapfrog():
+    N = 16
+    ell = 10 # increase ell at fixed eps to increase error
+    eps = 0.1 # 1/ell
+    model = SU2xSU2(N, a=1, ell=ell, eps=eps, beta=1)
+
+    # np.random.seed(6)
+    # a0 = np.ones((N,N,1))
+    # ai = np.zeros((N,N,3))
+    ai = np.random.uniform(-1, 1, size=(N,N,3))
+    a0 = (1 - np.sum(ai**2, axis=2)).reshape((N,N,1))
+    phi_start = np.concatenate([a0,ai], axis=2)
+    pi_start = np.random.standard_normal((N,N,3))
+
+    phi_end, pi_end = model.leapfrog(phi_start, pi_start)
+    phi_start_new, pi_start_new = model.leapfrog(phi_end, -pi_end)
+
+    phi_delta = np.abs(phi_start_new-phi_start)
+    pi_delta = np.abs(pi_start_new+pi_start)
+
+    print('phi error:')
+    print('Total: ', np.sum(phi_delta))
+    print('Biggest: ', np.max(phi_delta))
+
+    print('\npi error:')
+    print('Total: ', np.sum(pi_delta))
+    print('Biggest: ', np.max(pi_delta))
+
+# test_leapfrog()
