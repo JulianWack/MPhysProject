@@ -176,7 +176,7 @@ class SU2xSU2():
 
     def run_HMC(self, M, thin_freq, burnin_frac, accel=True, store_data=False):
         ''' '''
-        np.random.seed(12) # for debugging
+        np.random.seed(42) # for debugging
         t1 = time.time()
         # Collection of produced lattice configurations. Each one is (N,N,4) such that at each site the 4 parameters describing the associated SU(2) matrix are stored
         configs = np.empty((M+1, self.N, self.N, 4)) 
@@ -252,8 +252,7 @@ class SU2xSU2():
         two consecutive configurations in the final (thinned and burn in rejected) chain. If the chain has thermalised successfully, the average will be close to 1.
         Optionally, plot exp(-dH) against HMC sweeps i.e. MC time.
         '''
-        exp__dH_avg = np.mean(np.exp(-self.delta_Hs))
-        exp__dH_avg_err = np.std(np.exp(-self.delta_Hs)) / np.sqrt(exp__dH_avg.size)
+        exp__dH_avg, _, exp__dH_err, _ = jackknife_stats(np.exp(-self.delta_Hs), np.mean, 0.95)
 
         if make_plot:
             fig = plt.figure(figsize=(8,6))
@@ -264,13 +263,4 @@ class SU2xSU2():
             plt.show()
             # fig.savefig('plots/deltaH_vs_sweeps.pdf')
 
-
-        # print('<exp(-dH)> = %.5f +/- %.5f '%(exp__dH_avg, exp__dH_avg_err))
-        return exp__dH_avg, exp__dH_avg_err
-
-
-
-# model = SU2xSU2(N=16, a=1, ell=7, eps=0.1429, beta=1)
-# model.run_HMC(2000, 1, 0.1, s=5)      
-# avg , avg_err = model.exp__dH(make_plot=True)
-# print(avg, avg_err)
+        return exp__dH_avg, exp__dH_err
