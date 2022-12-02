@@ -23,10 +23,10 @@ def alpha_to_a(alpha):
     '''
     N = alpha.shape[0]
     a = np.empty((N,N,4))
-    norm = np.sqrt(np.sum(alpha, axis=2)) # (N,N)
+    norm = np.sqrt(np.sum(alpha**2, axis=2)) # (N,N)
     # to do arithmetic with other (N,N,3) array need to broadcast to include axis 2
-    alpha_norm = norm.reshape((N,N,1)) # more basic approach would be np.stack([alpha_norm, alpha_norm, alpha_norm], axis=2) but required 3 times as much memory
-    alpha_unit = alpha / alpha_norm  
+    alpha_norm = norm.reshape((N,N,1))
+    alpha_unit = np.divide(alpha, alpha_norm, out=np.zeros_like(alpha), where=alpha_norm!=0) # avoids division by zero. When norm is zero, i.e alpha is zero, alpha_unit is set to zero too 
     a[:,:,0] = np.cos(norm)
     a[:,:,1:] = alpha_unit * np.sin(alpha_norm)
 

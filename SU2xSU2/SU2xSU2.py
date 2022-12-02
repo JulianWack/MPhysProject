@@ -118,7 +118,6 @@ class SU2xSU2():
         '''Time derivative of pi which is given as i times the derivative of the action wrt. phi.
         pi and pi dot are linear combinations of the Pauli matrices and hence described by 3 real parameters alpha
         '''
-
         phi_hc = SU2.hc(phi)
         phi_NN = phi[self.NN_mask]
         # need sum of NN pairs along the two lattice unit vectors i.e. right+left and top+bottom
@@ -145,13 +144,13 @@ class SU2xSU2():
 
     def leapfrog(self, phi_old, pi_old):
         '''
-        Returns a new candidate lattice configuration by evolving the last accepted one though solving Hamilton's equations via the leapfrog scheme.
+        Returns a new candidate lattice configuration and conjugate momenta by evolving the passed configuration and momenta via Hamilton's equations through the leapfrog scheme.
         phi_old: (N,N,4) array
             last accepted sample of SU(2) matrices (specifically their parameter vectors) at each lattice site
         pi_old: (N,N,3) array
-            auxillary momenta (specifically their parameter vectors) corresponding to phi_old
+            conjugate momenta (specifically their parameter vectors) corresponding to phi_old
             
-        Returns
+        Returns:
         phi_cur: (N,N,4) array
             SU(2) matrix parameter vectors after simulating dynamics
         pi_cur: (N,N,3) array
@@ -160,13 +159,13 @@ class SU2xSU2():
         # half step in pi, full step in phi
         pi_dot_dt_half = 0.5*self.eps * self.pi_dot(phi_old)
         pi_cur = pi_old + pi_dot_dt_half
-        phi_cur = SU2.dot(self.exp_update(pi_dot_dt_half), phi_old)
+        phi_cur = SU2.dot(self.exp_update(pi_cur*self.eps), phi_old)
 
         # ell-1 alternating full steps
         for n in range(self.ell):
             pi_dot_dt = self.eps * self.pi_dot(phi_cur)
             pi_cur = pi_cur + pi_dot_dt
-            phi_cur = SU2.dot(self.exp_update(pi_dot_dt), phi_cur)
+            phi_cur = SU2.dot(self.exp_update(pi_cur*self.eps), phi_cur)
     
         # half step in pi
         pi_dot_dt_half = 0.5*self.eps * self.pi_dot(phi_cur)
@@ -177,7 +176,7 @@ class SU2xSU2():
 
     def run_HMC(self, M, thin_freq, burnin_frac, accel=True, store_data=False):
         ''' '''
-        import pdb
+        np.random.seed(12) # for debugging
         t1 = time.time()
         # Collection of produced lattice configurations. Each one is (N,N,4) such that at each site the 4 parameters describing the associated SU(2) matrix are stored
         configs = np.empty((M+1, self.N, self.N, 4)) 
@@ -187,17 +186,13 @@ class SU2xSU2():
         start_id = int(np.ceil(M*burnin_frac))
         n_acc = 0
 
-        # cold/ordered start
-
-        # leads to alpha = all zeros in first call of exp_update s.t. get division error when computing alpha_to_a 
-
+        # # cold/ordered start
         # a0 = np.ones((self.N,self.N,1))
         # ai = np.zeros((self.N,self.N,3))
         # configs[0] = np.concatenate([a0,ai], axis=2)
 
-        # hot start
+        # # hot start
         # need to assure that norm of parameter vector is 1 to describe SU(2) matrices
-        np.random.seed(42)
         ai = np.random.uniform(-1, 1, size=(self.N,self.N,3))
         a0 = (1 - np.sum(ai**2, axis=2)).reshape((self.N,self.N,1))
         configs[0] = np.concatenate([a0,ai], axis=2)
@@ -275,7 +270,7 @@ class SU2xSU2():
 
 
 
-# model = SU2xSU2(4, 1, 10, 0.1, 1)
-# model.run_HMC(1000, 1, 0.01)
+# model = SU2xSU2(N=16, a=1, ell=7, eps=0.1429, beta=1)
+# model.run_HMC(2000, 1, 0.1, s=5)      
 # avg , avg_err = model.exp__dH(make_plot=True)
 # print(avg, avg_err)
