@@ -221,3 +221,67 @@ def test_leapfrog():
     print('Biggest: ', np.max(pi_delta))
 
 # test_leapfrog()
+
+
+##### Check equipartion #####
+def test_equi():
+    '''SU(2) matrix has 3 DoF. Hence expect by equipartition (with k_b T = 1) that the average KE per site is 3*1/2.'''
+    def KE_per_site(pi, N):
+        K = 1/2 * np.sum(pi**2)
+        return K/N**2
+    
+    N, ell, eps = 16, 10, 0.1 
+    M = 2000
+    model = SU2xSU2(N, a=1, ell=ell, eps=eps, beta=1)
+    configs = np.empty((M+1, N, N, 4))
+    momenta = np.empty((M, N, N, 3))
+    kins = np.empty(M)
+
+    # cold start
+    a0 = np.ones((N,N,1))
+    ai = np.zeros((N,N,3))
+    configs[0] = np.concatenate([a0,ai], axis=2)
+   
+    for i in range(1,M):
+        phi = configs[i-1]
+        pi = np.random.standard_normal((N,N,3))
+        phi_new, pi_new = model.leapfrog(phi, pi)
+
+        delta_H = model.Ham(phi_new,-pi_new) - model.Ham(phi,pi)
+        acc_prob = np.min([1, np.exp(-delta_H)])
+
+        if acc_prob > np.random.random():
+            configs[i] = phi_new
+            momenta[i-1] = pi_new
+        else:
+            configs[i] = phi 
+            momenta[i-1] = pi
+
+        kins[i] = KE_per_site(momenta[i-1], N)
+
+    # reject 10% burn in
+    burn_in_idx = int(M*0.1) 
+    KE_avg = np.mean(kins[burn_in_idx:])
+    KE_err = np.std(kins[burn_in_idx:]) / np.sqrt(kins[burn_in_idx:].shape)
+
+    print('avg KE per site = %.5f +/- %.5f'%(KE_avg, KE_err))
+
+# test_equi()
+
+
+##### Check disordered phase #####
+def test_avg_components():
+    '''In O(4) interpretation, each site hosts a 4D vector. The system is in the disordered phase for beta!=infty 
+    such that the components of the vector when averaged over configurations and sites vanish'''
+
+    model = SU2xSU2(N=16, a=1, ell=10, eps=0.1, beta=1)
+    model.run_HMC(5000, 1, 0.1, store_data=False)    
+
+    comps = model.configs
+    comps_avg = np.mean(comps, axis=(0,1,2))
+    comps_err = np.std(comps, axis=(0,1,2)) / np.sqrt(comps.size)
+    
+    for i,(avg, err) in enumerate(zip(comps_avg, comps_err)):
+        print('component %d: %.5f +/- %.5f'%(i, avg, err))
+
+# test_avg_components()
