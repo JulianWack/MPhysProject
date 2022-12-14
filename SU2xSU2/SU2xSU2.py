@@ -10,6 +10,7 @@ from scipy.optimize import curve_fit
 from astropy.stats import jackknife_stats
 
 import SU2_mat_routines as SU2
+from correlations import correlator
 
 
 plt.style.use('science')
@@ -83,20 +84,16 @@ class SU2xSU2():
         return NN_mask 
 
         
-    def Ham(self, phi, pi):
+    def action(self, phi):
         '''
-        Compute the hamiltonian for a lattice configuration phi, pi
+        Computes the action for lattice configuration phi
         phi: (N,N,4) array
             parameter values of SU(2) matrices at each lattice site
-        pi: (N,N,3) array
-            parameter values conjugate momenta at each lattice site
-            
-        Returns
-        H: float
-            The Hamiltonian
-        '''
-        K = 1/2 * np.sum(pi**2) # equivalent to first summing the square of the parameters at each site and then sum over all sites
 
+        Returns
+        S: float
+            the action
+        '''
         phi_hc = SU2.hc(phi)
         phi_NN = phi[self.NN_mask] # (N,N,4,4): containing the 4 paras of each of the 4 NN
 
@@ -109,6 +106,48 @@ class SU2xSU2():
         # sum over lattice sites    
         S = -1/2 * self.beta * np.sum(G)
 
+        return S
+
+
+    def susceptibility(self, phi):
+        '''
+        Computes the susceptibility for lattice configuration phi
+        phi: (N,N,4) array
+            parameter values of SU(2) matrices at each lattice site
+
+        Returns
+        Chi: float
+            the susceptibility
+        '''
+        # find product of phi with phi at every other lattice position y
+        G = np.zeros((self.N,self.N))
+        for i in range(self.N**2):
+            phi_flat = phi.flatten()
+            shifted = np.roll(phi_flat, -i)
+            phi_at_y = shifted.reshape(phi.shape)
+             
+            A = SU2.dot(phi, SU2.hc(phi_at_y))
+            G += SU2.tr(A + SU2.hc(A))
+
+        Chi = 1/2 * np.sum(G)
+
+        return Chi
+
+
+    def Ham(self, phi, pi):
+        '''
+        Computes the Hamiltonian for a lattice configuration phi, pi
+        phi: (N,N,4) array
+            parameter values of SU(2) matrices at each lattice site
+        pi: (N,N,3) array
+            parameter values conjugate momenta at each lattice site
+            
+        Returns
+        H: float
+            the Hamiltonian as the sum of the action and a kinetic term, quadratic in pi
+        '''
+        K = 1/2 * np.sum(pi**2) # equivalent to first summing the square of the parameters at each site and then sum over all sites
+        S = self.action(phi)
         H = K + S
 
         return H 
@@ -174,8 +213,25 @@ class SU2xSU2():
         return phi_cur, pi_cur
 
 
-    def run_HMC(self, M, thin_freq, burnin_frac, accel=True, store_data=False):
-        ''' '''
+    def run_HMC(self, M, thin_freq, burnin_frac, renorm_freq=None, accel=True, store_data=False):
+        '''Perform the HMC algorithm to generate lattice configurations using ordinary or accelerated dynamics (accel=True).
+        A total of M trajectories will be simulated. The final chain of configurations will reject the first M*burnin_frac samples as burn in and 
+        only consider every thin_freq-th accepted configuration to reduce the autocorrelation. 
+        Due to accumulating rounding errors, unitarity will be broken after some number of trajectories. To project back to the group manifold, all matrices are renormalised 
+        every renorm_freq-th trajectory. 
+        M: int
+            number of HMC trajectories and thus total number of generated samples
+        thin_freq: int
+            frequency by which chain of generated samples will be thinned
+        burin_frac: float
+            fraction of total HMC samples needed for the system to thermalize  
+        renorm_freq: int
+            after how many trajectories are all matrices renormalized
+        accel: bool
+            By default True, indicating to use Fourier Acceleration
+        store_data: bool
+            store simulation parameters and data    
+        '''
         np.random.seed(42) # for debugging
         t1 = time.time()
         # Collection of produced lattice configurations. Each one is (N,N,4) such that at each site the 4 parameters describing the associated SU(2) matrix are stored
@@ -200,6 +256,11 @@ class SU2xSU2():
         with alive_bar(M) as bar:
             for i in range(1, configs.shape[0]):
                 phi = configs[i-1]
+                # renormalize    
+                if renorm_freq is not None:
+                    if i % renorm_freq == 0:
+                        SU2.renorm(phi)
+
                 # the conjugate momenta are linear combination of Pauli matrices and thus described by 3 parameters
                 pi = np.random.standard_normal((self.N,self.N,3))
 
@@ -217,7 +278,7 @@ class SU2xSU2():
     
         self.acc_rate = n_acc/(M-start_id)
         self.time = t1-time.time()
-        # print('Finished %d HMC steps in %s'%(M,str(timedelta(seconds=t2-t1))))
+        # print('Finished %d HMC steps in %s'%(M,str(timedelta(seconds=self.time))))
         print('Acceptance rate: %.2f%%'%(self.acc_rate*100))
         
         # make final chain of configurations
@@ -227,9 +288,10 @@ class SU2xSU2():
         start = start_id+thin_freq-1
         mask = np.s_[start::thin_freq]
 
-        self.configs = configs[mask] # final configurations
+        self.configs = configs[mask] # final configurations (M,N,N,4)
         # to plot evolution of an observable, such as delta H, over trajectories store index of trajectories in the final chain
         self.sweeps = np.arange(M)[mask]
+        self.M = self.sweeps.shape[0] # number of observations
         self.delta_Hs = delta_Hs[mask]
         
         if store_data:
@@ -264,3 +326,143 @@ class SU2xSU2():
             # fig.savefig('plots/deltaH_vs_sweeps.pdf')
 
         return exp__dH_avg, exp__dH_err
+
+
+    def order_parameter(self, make_plot=False):
+        ''' Finds the average matrix of each configuration, The normalized parameter vector of this average matrix is used as the (vectorial) order parameter. 
+        Alternative choice described in eq 3.1 of https://www.sciencedirect.com/science/article/pii/0550321382900657
+        As no phase transition is present in this model, the order parameter should be close to zero. 
+        The plot illustrates the thermalisation process and autocorrelations between configurations.
+
+        Returns
+        ms_avg: (4,) array
+            the order parameter when averaged over all configurations 
+        ms_err: (4,) array
+            error on the average 
+        '''
+        avg_SU2 = np.mean(self.configs, axis=(1,2)) # (M,4)
+        norm = np.sqrt(np.sum(avg_SU2**2, axis=-1)).reshape((avg_SU2.shape[0], 1))
+        ms = np.divide(avg_SU2, norm, out=np.zeros_like(avg_SU2), where=norm!=0)
+
+        ms_avg, ms_err = np.empty(4), np.empty(4)
+        ms_int = np.empty((4,2))
+        for i in range(4):
+            # ms_avg[i], _, ms_err[i], ms_int[i] = jackknife_stats(ms[:,i], np.mean, 0.95)
+            ts, m_ACF, m_ACF_err, m_IAT, m_IAT_err, delta_t = correlator(ms[:,i].reshape((self.M,1)))
+            ms_avg[i] = np.mean(ms[:,i])
+            ms_err[i] = np.sqrt(m_IAT/self.M) * np.std(ms[:,i])
+
+        if make_plot:
+            fig, axes = plt.subplots(2, 2, figsize=(12,8), sharex='col')
+            axs = axes.flatten() 
+
+            cs=['k', 'g', 'b', 'r']
+            for i, ax in enumerate(axs):
+                dots = ax.scatter(self.sweeps, ms[:,i], s=2, color=cs[i]) 
+    
+                ax.hlines(ms_avg[i], self.sweeps[0], self.sweeps[-1], linestyles='--', color=cs[i])
+                ax.fill_between(self.sweeps, ms_avg[i]-ms_err[i], ms_avg[i]+ms_err[i], color=cs[i], alpha=0.2)
+                # ax.fill_between(self.sweeps, ms_int[i][0], ms_int[i][1], color=cs[i], alpha=0.2)
+                if i in [2,3]:
+                    ax.set_xlabel('HMC sweep')
+                ax.set_ylabel('$m_{%d}$'%i)
+        
+            fig.tight_layout()
+            plt.show()
+            # fig.savefig('plots/m_vs_sweeps.pdf')
+
+
+        return ms_avg, ms_err
+
+
+    def action_per_site(self, get_IAT=True):
+        '''Computes the action (internal energy) per site for each accepted lattice configuration and optionally finds the associated IAT.
+        Returns:
+        s_avg: float
+            action per site when averaged over all accepted configurations
+        s_err: float
+            Jackknife error of average
+        IAT: float
+            integrated autocorrelation time for action per site
+        IAT_err float
+            error of IAT 
+        '''
+        action_ps = np.empty(self.M) # action per site for all accepted configurations
+        for i,phi in enumerate(self.configs):
+            action_ps[i] = self.action(phi) / (-self.beta * self.N**2) # factor of -beta due to definition of action
+
+        s_avg, _, s_err, _ = jackknife_stats(action_ps, np.mean, 0.95)
+        
+        # ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlator(action_ps.reshape((self.M,1)))
+        # s_avg = np.mean(action_ps)
+        # s_err = np.sqrt(IAT/self.M) * np.std(action_ps)
+        # print(s_err)
+
+        if not get_IAT:
+            return s_avg, s_err
+            
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlator(action_ps.reshape((self.M,1)))
+
+        return s_avg, s_err, IAT, IAT_err
+
+
+    def specific_heat_per_site(self, get_IAT=True):
+        '''Computes the specific heat per site for each accepted lattice configuration and optionally finds the associated IAT.
+        The specific heat is deduced as the variance of the internal energy using the fluctuation-dissipation theorem.
+        Returns:
+        c_avg: float
+            specific heat per site when averaged over all accepted configurations
+        c_err: float
+            Jackknife error of average
+        c_IAT: float
+            integrated autocorrelation time for specific heat per site
+        c_IAT_err float
+            error of IAT 
+        '''
+        c = np.empty(self.M)
+        for i,phi in enumerate(self.configs):
+            # find internal energy as done in self.action but don't sum over all sites
+            phi_hc = SU2.hc(phi)
+            phi_NN = phi[self.NN_mask]
+
+            F = np.zeros((self.N,self.N))
+            for i in [0,3]:
+                A = SU2.dot(phi_hc, phi_NN[:,:,i,:])
+                G += SU2.tr(A + SU2.hc(A)) 
+
+            c[i] = (np.mean(G**2) - np.mean(G)**2) / self.N**2 
+    
+        c_avg, _, c_err, _ = jackknife_stats(c, np.mean, 0.95)
+
+        if get_IAT:
+            return c_avg, c_err
+
+        ts, c_ACF, c_ACF_err, c_IAT, c_IAT_err, delta_t = correlator(c.reshape((self.M,1)))
+
+        return c_avg, c_err, c_IAT, c_IAT_err 
+
+
+    def susceptibility_per_site(self, get_IAT=True):
+        '''Computes the susceptibility per site for each accepted lattice configuration and optionally finds the associated IAT.
+        Returns:
+        chi_avg: float
+            susceptibility per site when averaged over all accepted configurations
+        chi_err: float
+            Jackknife error of average
+        IAT: float
+            integrated autocorrelation time for susceptibility per site
+        IAT_err float
+            error of IAT 
+        '''
+        suscept = np.empty(self.M)
+        for i,phi in enumerate(self.configs):
+            suscept[i] = self.susceptibility(phi) / self.N**2
+
+        chi_avg, _, chi_err, _ = jackknife_stats(suscept, np.mean, 0.95)
+
+        if not get_IAT:
+            return chi_avg, chi_err
+
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlator(suscept.reshape((self.M,1)))
+
+        return chi_avg, chi_err, IAT, IAT_err
