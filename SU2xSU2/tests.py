@@ -275,13 +275,10 @@ def test_avg_components():
     such that the components of the vector when averaged over configurations and sites vanish'''
 
     model = SU2xSU2(N=16, a=1, ell=10, eps=0.1, beta=1)
-    model.run_HMC(5000, 1, 0.1, store_data=False)    
+    model.run_HMC(5000, 20, 0.1, store_data=False)    
 
-    comps = model.configs
-    comps_avg = np.mean(comps, axis=(0,1,2))
-    comps_err = np.std(comps, axis=(0,1,2)) / np.sqrt(comps.size)
-    
-    for i,(avg, err) in enumerate(zip(comps_avg, comps_err)):
-        print('component %d: %.5f +/- %.5f'%(i, avg, err))
+    m_avg , m_err = model.order_parameter(make_plot=False)
+    for i,(avg, err) in enumerate(zip(m_avg, m_err)):
+            print('<m_%d> : %.5f +/- %.5f'%(i, avg, err))
 
 # test_avg_components()

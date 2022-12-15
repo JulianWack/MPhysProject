@@ -306,6 +306,7 @@ class SU2xSU2():
         '''
         self.configs = np.load('data/final_chain.npy')
         self.sweeps = np.load('data/sweeps.npy')
+        self.M = self.sweeps.shape[0]
         self.delta_Hs = np.load('data/dH.npy')
 
 
@@ -331,8 +332,8 @@ class SU2xSU2():
     def order_parameter(self, make_plot=False):
         ''' Finds the average matrix of each configuration, The normalized parameter vector of this average matrix is used as the (vectorial) order parameter. 
         Alternative choice described in eq 3.1 of https://www.sciencedirect.com/science/article/pii/0550321382900657
-        As no phase transition is present in this model, the order parameter should be close to zero. 
-        The plot illustrates the thermalisation process and autocorrelations between configurations.
+        As no phase transition is present in this model, the order parameter should be close to zero.
+        Plots evolution over trajectories and a histogram of the component values for all parameter vectors.
 
         Returns
         ms_avg: (4,) array
@@ -347,19 +348,20 @@ class SU2xSU2():
         ms_avg, ms_err = np.empty(4), np.empty(4)
         ms_int = np.empty((4,2))
         for i in range(4):
+            # Jackknife error has tendency to be smaller than correction of SEM via IAT
             # ms_avg[i], _, ms_err[i], ms_int[i] = jackknife_stats(ms[:,i], np.mean, 0.95)
             ts, m_ACF, m_ACF_err, m_IAT, m_IAT_err, delta_t = correlator(ms[:,i].reshape((self.M,1)))
             ms_avg[i] = np.mean(ms[:,i])
             ms_err[i] = np.sqrt(m_IAT/self.M) * np.std(ms[:,i])
 
         if make_plot:
+            # evolution over trajectories
             fig, axes = plt.subplots(2, 2, figsize=(12,8), sharex='col')
             axs = axes.flatten() 
 
             cs=['k', 'g', 'b', 'r']
             for i, ax in enumerate(axs):
-                dots = ax.scatter(self.sweeps, ms[:,i], s=2, color=cs[i]) 
-    
+                ax.scatter(self.sweeps, ms[:,i], s=2, color=cs[i]) 
                 ax.hlines(ms_avg[i], self.sweeps[0], self.sweeps[-1], linestyles='--', color=cs[i])
                 ax.fill_between(self.sweeps, ms_avg[i]-ms_err[i], ms_avg[i]+ms_err[i], color=cs[i], alpha=0.2)
                 # ax.fill_between(self.sweeps, ms_int[i][0], ms_int[i][1], color=cs[i], alpha=0.2)
@@ -370,6 +372,20 @@ class SU2xSU2():
             fig.tight_layout()
             plt.show()
             # fig.savefig('plots/m_vs_sweeps.pdf')
+
+            # histogram
+            fig = plt.figure(figsize=(8,6))
+            all_paras = self.configs.reshape((-1,4))
+            norm = np.sqrt(np.sum(all_paras**2, axis=-1)).reshape((all_paras.shape[0], 1))
+            normed_paras = np.divide(all_paras, norm, out=np.zeros_like(all_paras), where=norm!=0)
+
+            for i in range(4):
+                plt.hist(normed_paras[:,i], bins='auto', density='True', histtype='step', label='$m_{%d}$'%i)
+            plt.xlabel('component value')
+            plt.ylabel('probability density')
+            plt.legend(prop={'size': 12})
+            plt.show()
+            # fig.savefig('plots/m_histogram.pdf')
 
 
         return ms_avg, ms_err
@@ -425,7 +441,7 @@ class SU2xSU2():
             phi_hc = SU2.hc(phi)
             phi_NN = phi[self.NN_mask]
 
-            F = np.zeros((self.N,self.N))
+            G = np.zeros((self.N,self.N))
             for i in [0,3]:
                 A = SU2.dot(phi_hc, phi_NN[:,:,i,:])
                 G += SU2.tr(A + SU2.hc(A)) 
@@ -434,7 +450,7 @@ class SU2xSU2():
     
         c_avg, _, c_err, _ = jackknife_stats(c, np.mean, 0.95)
 
-        if get_IAT:
+        if not get_IAT:
             return c_avg, c_err
 
         ts, c_ACF, c_ACF_err, c_IAT, c_IAT_err, delta_t = correlator(c.reshape((self.M,1)))

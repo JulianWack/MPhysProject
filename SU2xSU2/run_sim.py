@@ -1,16 +1,26 @@
+import numpy as np
 from SU2xSU2 import SU2xSU2
 
 
 model = SU2xSU2(N=16, a=1, ell=10, eps=0.1, beta=1)
-model.run_HMC(5000, 100, 0.1, store_data=False)    
+# # run simulation
+model.run_HMC(5000, 1, 0.1, store_data=False)  
+# # or load stored simulation
+# paras = np.load('data/sim_paras.npy')
+# model = SU2xSU2(*paras)
+# model.load_data()
+# apply additional thinning
+# model.configs = model.configs[::20]
+# model.sweeps = model.sweeps[::20]
+# model.M = model.configs.shape[0]
 
 
 # exp__dH_avg , exp__dH_err = model.exp__dH(make_plot=False)
 # print('<exp(-dH)> = %.5f +/- %.5f \n'%(exp__dH_avg, exp__dH_err))
 
-# m_avg , m_err = model.order_parameter(make_plot=True)
-# for i,(avg, err) in enumerate(zip(m_avg, m_err)):
-#         print('<m_%d> : %.5f +/- %.5f'%(i, avg, err))
+m_avg , m_err = model.order_parameter(make_plot=True)
+for i,(avg, err) in enumerate(zip(m_avg, m_err)):
+        print('<m_%d> : %.5f +/- %.5f'%(i, avg, err))
 
 # s_avg, s_err, IAT_s, IAT_s_err = model.action_per_site() 
 # print('action per site = %.5f +/- %.5f'%(s_avg, s_err))
