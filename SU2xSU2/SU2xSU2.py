@@ -407,18 +407,14 @@ class SU2xSU2():
         for i,phi in enumerate(self.configs):
             action_ps[i] = self.action(phi) / (-self.beta * self.N**2) # factor of -beta due to definition of action
 
-        s_avg, _, s_err, _ = jackknife_stats(action_ps, np.mean, 0.95)
+        # s_avg, _, s_err, _ = jackknife_stats(action_ps, np.mean, 0.95)
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlator(action_ps.reshape((self.M,1)))
+        s_avg = np.mean(action_ps)
+        s_err = np.sqrt(IAT/self.M) * np.std(action_ps)
         
-        # ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlator(action_ps.reshape((self.M,1)))
-        # s_avg = np.mean(action_ps)
-        # s_err = np.sqrt(IAT/self.M) * np.std(action_ps)
-        # print(s_err)
-
         if not get_IAT:
             return s_avg, s_err
-            
-        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlator(action_ps.reshape((self.M,1)))
-
+        
         return s_avg, s_err, IAT, IAT_err
 
 
@@ -437,16 +433,7 @@ class SU2xSU2():
         '''
         c = np.empty(self.M)
         for i,phi in enumerate(self.configs):
-            # find internal energy as done in self.action but don't sum over all sites
-            phi_hc = SU2.hc(phi)
-            phi_NN = phi[self.NN_mask]
-
-            G = np.zeros((self.N,self.N))
-            for i in [0,3]:
-                A = SU2.dot(phi_hc, phi_NN[:,:,i,:])
-                G += SU2.tr(A + SU2.hc(A)) 
-
-            c[i] = (np.mean(G**2) - np.mean(G)**2) / self.N**2 
+            _, c[i] = self.action_per_site(get_IAT=False) 
     
         c_avg, _, c_err, _ = jackknife_stats(c, np.mean, 0.95)
 
@@ -474,11 +461,12 @@ class SU2xSU2():
         for i,phi in enumerate(self.configs):
             suscept[i] = self.susceptibility(phi) / self.N**2
 
-        chi_avg, _, chi_err, _ = jackknife_stats(suscept, np.mean, 0.95)
+        # chi_avg, _, chi_err, _ = jackknife_stats(suscept, np.mean, 0.95)
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlator(suscept.reshape((self.M,1)))
+        chi_avg = np.mean(suscept)
+        chi_err = np.sqrt(IAT/self.M) * np.std(suscept)
 
         if not get_IAT:
             return chi_avg, chi_err
-
-        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlator(suscept.reshape((self.M,1)))
 
         return chi_avg, chi_err, IAT, IAT_err
