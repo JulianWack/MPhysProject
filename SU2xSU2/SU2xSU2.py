@@ -146,9 +146,9 @@ class SU2xSU2():
         H: float
             the Hamiltonian as the sum of the action and a kinetic term, quadratic in pi
         '''
-        K = 1/2 * np.sum(pi**2) # equivalent to first summing the square of the parameters at each site and then sum over all sites
+        T = 1/2 * np.sum(pi**2) # equivalent to first summing the square of the parameters at each site and then sum over all sites
         S = self.action(phi)
-        H = K + S
+        H = T + S
 
         return H 
 
@@ -420,29 +420,46 @@ class SU2xSU2():
 
     def specific_heat_per_site(self, get_IAT=True):
         '''Computes the specific heat per site for each accepted lattice configuration and optionally finds the associated IAT.
-        The specific heat is deduced as the variance of the internal energy using the fluctuation-dissipation theorem.
+        The specific heat is deduced as the average covariance of the internal energy following eq 1 of https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.45.1755 
         Returns:
         c_avg: float
             specific heat per site when averaged over all accepted configurations
         c_err: float
             Jackknife error of average
-        c_IAT: float
+        IAT: float
             integrated autocorrelation time for specific heat per site
-        c_IAT_err float
+        IAT_err float
             error of IAT 
         '''
         c = np.empty(self.M)
         for i,phi in enumerate(self.configs):
-            _, c[i] = self.action_per_site(get_IAT=False) 
+            # find internal energy as done in self.action but don't sum over all sites
+            phi_hc = SU2.hc(phi)
+            phi_NN = phi[self.NN_mask]
+
+            G = np.zeros((self.N,self.N)) # energy at each site
+            for k in [0,3]:
+                A = SU2.dot(phi_hc, phi_NN[:,:,k,:])
+                G += SU2.tr(A + SU2.hc(A)) 
+
+                for j in range(self.N**2):
+                    G_flat = G.flatten()
+                    shifted = np.roll(G_flat, -j)
+                    G_at_y = shifted.reshape(G.shape)
+
+                    c[i] += (np.mean(G*G_at_y) + np.mean(G)**2) / self.N**2 # identical to np.mean(G)*np.mean(G_at_Y)
+
+                c[i] /= self.N**2 # such that we averaged over positions y
     
-        c_avg, _, c_err, _ = jackknife_stats(c, np.mean, 0.95)
+        # c_avg, _, c_err, _ = jackknife_stats(c, np.mean, 0.95)
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlator(c.reshape((self.M,1)))
+        c_avg = np.mean(c)
+        c_err = np.sqrt(IAT/self.M) * np.std(c)
 
         if not get_IAT:
             return c_avg, c_err
 
-        ts, c_ACF, c_ACF_err, c_IAT, c_IAT_err, delta_t = correlator(c.reshape((self.M,1)))
-
-        return c_avg, c_err, c_IAT, c_IAT_err 
+        return c_avg, c_err, IAT, IAT_err        
 
 
     def susceptibility_per_site(self, get_IAT=True):
