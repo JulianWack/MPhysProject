@@ -213,7 +213,7 @@ class SU2xSU2():
         return phi_cur, pi_cur
 
 
-    def run_HMC(self, M, thin_freq, burnin_frac, renorm_freq=None, accel=True, store_data=False):
+    def run_HMC(self, M, thin_freq, burnin_frac, renorm_freq=10000, accel=True, store_data=False):
         '''Perform the HMC algorithm to generate lattice configurations using ordinary or accelerated dynamics (accel=True).
         A total of M trajectories will be simulated. The final chain of configurations will reject the first M*burnin_frac samples as burn in and 
         only consider every thin_freq-th accepted configuration to reduce the autocorrelation. 
@@ -226,7 +226,7 @@ class SU2xSU2():
         burin_frac: float
             fraction of total HMC samples needed for the system to thermalize  
         renorm_freq: int
-            after how many trajectories are all matrices renormalized
+            after how many trajectories are all matrices renormalized. Set to None to never renormalize
         accel: bool
             By default True, indicating to use Fourier Acceleration
         store_data: bool
@@ -248,15 +248,13 @@ class SU2xSU2():
         # configs[0] = np.concatenate([a0,ai], axis=2)
 
         # # hot start
-        # need to assure that norm of parameter vector is 1 to describe SU(2) matrices
-        ai = np.random.uniform(-1, 1, size=(self.N,self.N,3))
-        a0 = (1 - np.sum(ai**2, axis=2)).reshape((self.N,self.N,1))
-        configs[0] = np.concatenate([a0,ai], axis=2)
+        # sampling 4 points form 4D unit sphere assures that norm of parameter vector is 1 to describe SU(2) matrices. Use a spherically symmetric distribution such as gaussian
+        a = np.random.standard_normal((self.N,self.N,4))
+        configs[0] = SU2.renorm(a)
 
         with alive_bar(M) as bar:
             for i in range(1, configs.shape[0]):
-                phi = configs[i-1]
-                # renormalize    
+                phi = configs[i-1]   
                 if renorm_freq is not None:
                     if i % renorm_freq == 0:
                         SU2.renorm(phi)

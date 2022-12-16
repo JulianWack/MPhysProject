@@ -107,8 +107,9 @@ def renorm(a):
     '''
     N = a.shape[0]
     norm =  np.sqrt(norm2(a)).reshape((N,N,1)) # broadcast to do arithmetic with (N,N,4) array a
+    renormed = np.divide(a, norm, out=np.zeros_like(a), where=norm!=0)
     
-    return a / norm
+    return renormed
 
 
 ### combining two SU(2) matrices ### 
