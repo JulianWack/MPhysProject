@@ -49,8 +49,8 @@ def beta_dependence(betas, save=False):
             good_acc_rate = False
             count = 0
             while good_acc_rate == False:
-                model = SU2xSU2(N=64, a=1, ell=ell, eps=eps, beta=beta)
-                model.run_HMC(1000, 20, 0.1, accel=accel_bool, store_data=False)  
+                model = SU2xSU2(N=16, a=1, ell=ell, eps=eps, beta=beta)
+                model.run_HMC(5000, 20, 0.1, accel=accel_bool, store_data=False)  
                 acc_rate = model.acc_rate
                 d_acc_rate = 0.65 - acc_rate
                 if count >= 10:
