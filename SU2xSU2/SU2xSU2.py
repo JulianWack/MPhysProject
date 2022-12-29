@@ -389,31 +389,31 @@ class SU2xSU2():
         return ms_avg, ms_err
 
 
-    def action_per_site(self, get_IAT=True):
-        '''Computes the action (internal energy) per site for each accepted lattice configuration and optionally finds the associated IAT.
+    def internal_energy_density(self, get_IAT=True):
+        '''Computes the internal energy (action) per site for each accepted lattice configuration and optionally finds the associated IAT.
         Returns:
-        s_avg: float
+        e_avg: float
             action per site when averaged over all accepted configurations
-        s_err: float
+        e_err: float
             Jackknife error of average
         IAT: float
             integrated autocorrelation time for action per site
         IAT_err float
             error of IAT 
         '''
-        action_ps = np.empty(self.M) # action per site for all accepted configurations
+        e = np.empty(self.M) # internal energy density for all accepted configurations
         for i,phi in enumerate(self.configs):
-            action_ps[i] = self.action(phi) / (-self.beta * self.N**2) # factor of -beta due to definition of action
+            e[i] = self.action(phi) / (-self.beta * 4 * self.N**2) # definition of internal energy in terms of the action
 
-        # s_avg, _, s_err, _ = jackknife_stats(action_ps, np.mean, 0.95)
-        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlator(action_ps.reshape((self.M,1)))
-        s_avg = np.mean(action_ps)
-        s_err = np.sqrt(IAT/self.M) * np.std(action_ps)
+        # e_avg, _, e_err, _ = jackknife_stats(e, np.mean, 0.95)
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlator(e.reshape((self.M,1)))
+        e_avg = np.mean(e)
+        e_err = np.sqrt(IAT/self.M) * np.std(e)
         
         if not get_IAT:
-            return s_avg, s_err
+            return e_avg, e_err
         
-        return s_avg, s_err, IAT, IAT_err
+        return e_avg, e_err, IAT, IAT_err
 
 
     def specific_heat_per_site(self, get_IAT=True):
