@@ -239,7 +239,7 @@ class SU2xSU2():
         delta_Hs = np.empty(M)
 
         # count accepted samples after burn in, set by start_id
-        start_id = int(np.ceil(M*burnin_frac))
+        start_id = int(np.floor(M*burnin_frac))
         n_acc = 0
 
         # # cold/ordered start
@@ -293,10 +293,10 @@ class SU2xSU2():
         self.delta_Hs = delta_Hs[mask]
         
         if store_data:
-            np.save('data/sim_paras.npy', np.array([self.N, self.a, self.ell, self.eps, self.beta]))
+            np.savetxt('data/model_paras.txt', [self.N, self.a, self.ell, self.eps, self.beta], header='N, a, ell, eps, beta')
+            np.savetxt('data/sim_paras.txt', [M, thin_freq, burnin_frac, self.acc_rate], header='M, thin freq, burn in, accept rate')
             np.save('data/final_chain.npy', self.configs)
             np.save('data/sweeps.npy', self.sweeps)
-            np.save('data/dH.npy', self.delta_Hs)
             
 
     def load_data(self):
@@ -305,7 +305,6 @@ class SU2xSU2():
         self.configs = np.load('data/final_chain.npy')
         self.sweeps = np.load('data/sweeps.npy')
         self.M = self.sweeps.shape[0]
-        self.delta_Hs = np.load('data/dH.npy')
 
 
     def exp__dH(self, make_plot=False):
