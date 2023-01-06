@@ -2,4 +2,4 @@ QHO/my_tests.py
 SU2xSU2/my_tests.py
 resources/
 # for large simulations the final chain can exceed the 100 MB limit of GitHUb
-SU2xSU2/data/final_chain.npy
+SU2xSU2/data/single_run/final_chain.npy

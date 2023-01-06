@@ -293,17 +293,19 @@ class SU2xSU2():
         self.delta_Hs = delta_Hs[mask]
         
         if store_data:
-            np.savetxt('data/model_paras.txt', [self.N, self.a, self.ell, self.eps, self.beta], header='N, a, ell, eps, beta')
-            np.savetxt('data/sim_paras.txt', [M, thin_freq, burnin_frac, self.acc_rate], header='M, thin freq, burn in, accept rate')
-            np.save('data/final_chain.npy', self.configs)
-            np.save('data/sweeps.npy', self.sweeps)
+            np.savetxt('data/single_run/model_paras.txt', [self.N, self.a, self.ell, self.eps, self.beta], header='N, a, ell, eps, beta')
+            np.savetxt('data/single_run/sim_paras.txt', [M, thin_freq, burnin_frac, self.acc_rate], header='M, thin freq, burn in, accept rate')
+            np.save('data/single_run/final_chain.npy', self.configs)
+            np.save('data/single_run/sweeps.npy', self.sweeps)
+            np.save('data/single_run/delta_Hs.npy', self.delta_Hs)
             
 
     def load_data(self):
         '''Loads in data from previous simulation.
         '''
-        self.configs = np.load('data/final_chain.npy')
-        self.sweeps = np.load('data/sweeps.npy')
+        self.configs = np.load('data/single_run/final_chain.npy')
+        self.delta_Hs = np.load('data/single_run/delta_Hs.npy')
+        self.sweeps = np.load('data/single_run/sweeps.npy')
         self.M = self.sweeps.shape[0]
 
 

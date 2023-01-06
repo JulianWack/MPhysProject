@@ -299,6 +299,38 @@ def test_avg_components():
 # test_avg_components()
 
 
+##### plot residual between simulation and coupling expansions #####
+def residual_coupling():
+    res = np.loadtxt('data/coupling_expansion')
+    betas = res[:,0]
+    e_avg = res[:,4]
+    e_err = res[:,5]
+
+    fig = plt.figure(figsize=(8,6))
+
+    mask_s = betas<1
+    b_s = betas[mask_s]
+    strong = 1/2*b_s +1/6*b_s**3 +1/6*b_s**5
+
+    mask_w = betas>0.6
+    b_w = betas[mask_w]
+    Q1 = 0.0958876
+    Q2 = -0.0670
+    weak = 1 - 3/(8*b_w) * (1 + 1/(16*b_w) + (1/64 + 3/16*Q1 + 1/8*Q2)/b_w**2)
+
+    plt.errorbar(b_s, e_avg[mask_s]-strong, yerr=e_err[mask_s], color='g', fmt='.', capsize=2, label='HMC - s.c.')
+    plt.errorbar(b_w, e_avg[mask_w]-weak, yerr=e_err[mask_w], color='b', fmt='.', capsize=2, label='HMC - w.c.')
+    plt.legend(prop={'size': 12})
+    plt.xlabel(r'$\beta$')
+    plt.ylabel(r'residual')
+
+    plt.show()
+
+    return
+
+# residual_coupling()
+
+
 ##### Naive computation of wall wall correlations #####
 def get_ww_naive():
     '''Naive approach to compute the correlation length.
