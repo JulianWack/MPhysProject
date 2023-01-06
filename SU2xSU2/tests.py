@@ -1,7 +1,22 @@
 import numpy as np
+from matplotlib.ticker import MaxNLocator
+import matplotlib.pyplot as plt
+import matplotlib as mpl
+from cycler import cycler
+from astropy.stats import jackknife_stats
+from scipy.optimize import curve_fit
 import timeit
+import time
+from datetime import timedelta
+
+plt.style.use('science')
+plt.rcParams.update({'font.size': 20})
+# plt.rcParams.update({'text.usetex': False}) # faster rendering
+mpl.rcParams['axes.prop_cycle'] = cycler(color=['k', 'g', 'b', 'r'])
+
 import SU2_mat_routines as SU2
 from SU2xSU2 import SU2xSU2
+from calibrate_paras import calibrate
 
 
 ##### Check if my matrix routine gives same result as np #####
@@ -282,3 +297,88 @@ def test_avg_components():
             print('<m_%d> : %.5f +/- %.5f'%(i, avg, err))
 
 # test_avg_components()
+
+
+##### Naive computation of wall wall correlations #####
+def get_ww_naive():
+    '''Naive approach to compute the correlation length.
+    This function was mainly used to validate the result of the faster/FFT based approach.
+    '''
+    model = SU2xSU2(N=16, a=1, ell=7, eps=1/7, beta=1)
+    model.run_HMC(M=100, thin_freq=1, burnin_frac=0.1, store_data=False)
+    # model_paras = {'N':16, 'a':1, 'ell':7, 'eps':1/7, 'beta':1}
+    # paras_calibrated = calibrate(model_paras)
+    # print('calibration completed!')
+    # sim_paras = {'M':5000, 'thin_freq':40, 'burnin_frac':0.1, 'store_data':False}
+    # model, paras = calibrate(paras_calibrated, sim_paras, production_run=True)
+    # print('Parameters used during production run: ',paras)
+
+
+    def ww_correlation(i, j, m, model):
+        '''correlates ith and jth column of lattice, defined as the average point to point correlation for all points contained in the walls'''
+        pp_corrs = np.empty(model.N**2)
+        for p in range(model.N):
+            for q in range(model.N):
+                # correlate matrices A and B at points (p,i) and (q,j). Reshape to use routines
+                A = model.configs[m,p,i].reshape((1,1,4))
+                B = model.configs[m,q,j].reshape((1,1,4))
+
+                k = p*model.N + q
+                prod = SU2.dot(A, SU2.hc(B))
+                pp_corrs[k] = SU2.tr(prod + SU2.hc(prod))
+
+        return np.mean(pp_corrs)
+
+
+    L = 8 # largest considered separation 
+    ww_cor = np.empty(L+1) # wall wall correlation for different separations
+    ww_cor_err = np.empty(L+1)
+    ds = np.arange(L+1)
+    t1 = time.time()
+    for d in ds:
+        # smaller errors when using each wall wall pair as data point to estimate mean and error
+        # all_ww_pairs = np.empty((model.M, model.N)) # each row contains all wall wall correlations at fixed d for a different configuration
+        # for m in range(model.M):
+        #     for i in range(model.N):
+        #         all_ww_pairs[m,i] = ww_correlation(i, (i+d)%model.N, m, model)
+            
+        # ww_cor[d], _, ww_cor_err[d], _ = jackknife_stats(all_ww_pairs.flatten(), np.mean)
+        avg_ww_configs = np.empty(model.M) # average wall wall correlation of each configuration
+        for m in range(model.M):
+            avg_ww_pairs = np.empty(model.N) # average wall wall correlation from all pairs in a single configuration
+            for i in range(model.N):
+                avg_ww_pairs[i] = ww_correlation(i, (i+d)%model.N, m, model)
+            avg_ww_configs[m] = np.mean(avg_ww_pairs) 
+        ww_cor[d], _, ww_cor_err[d], _ = jackknife_stats(avg_ww_configs, np.mean)
+        print('d=%d done'%d)
+    # normalize
+    ww_cor, ww_cor_err = ww_cor/ww_cor[0], ww_cor_err/ww_cor[0]
+    t2 = time.time()
+    print('Total time: %s'%(str(timedelta(seconds=t2-t1))))
+
+    meta_str = 'N=%d, a=%.3f, beta=%.3f, number of configurations=%d'%(model.N, model.a, model.beta, model.M)
+    #np.savetxt('data/wallwall_cor_naive.txt', np.vstack((ds, ww_cor, ww_cor_err)), header=meta_str+'\nRows: separation in units of lattice spacing, correlation function and its error')
+
+
+    def lin_func(x, m, b):
+        return m*x+b
+
+    cut = 6 # np.floor(self.N/2)-2 # periodic bcs yield symmetric correlation function. To not contaminate the fit, restrict to range below half the size of the lattice 
+    popt, pcov = curve_fit(lin_func, ds[:cut], np.log(ww_cor[:cut]), sigma=np.log(ww_cor_err[:cut]), absolute_sigma=True) # uses chi2 minimization
+    cor_length = -1/popt[0] # in units of lattice spacing
+    cor_length_err = np.sqrt(pcov[0][0]) # in units of lattice spacing
+
+    fig = plt.figure(figsize=(8,6))
+
+    plt.errorbar(ds, ww_cor, yerr=ww_cor_err, fmt='.', capsize=2)
+    plt.plot(ds[:cut], np.exp(lin_func(ds[:cut],*popt)), label='$\\xi = %.3f \pm %.3f$'%(cor_length, cor_length_err))
+    plt.xlabel(r'lattice separation [$a$]')
+    plt.ylabel('wall-wall correlation')
+    plt.legend(prop={'size':12})
+    fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
+    plt.show()
+
+    # fig.savefig('plots/wallwall_correlation_naive.pdf')
+    return
+    
+# ds, ww_cor, ww_cor_err = get_ww_naive()

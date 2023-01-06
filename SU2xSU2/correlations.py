@@ -47,7 +47,8 @@ def autocorr_func_1d(x):
 
     return acf
 
-def correlator(data, c=4.0):
+
+def autocorrelator_repeats(data, c=4.0):
     '''Based on the implementation in emcee: https://emcee.readthedocs.io/en/stable/tutorials/autocorr/
     Computes the autocorrelation function and integrated autocorrelation time for passed data which is a 2D array such that each row represents a sample of observations.
     The correlations are computed between rows of the data by finding the 1D autocorrelation function for each column of the data. The overall ACF between rows is estimated
@@ -82,9 +83,11 @@ def correlator(data, c=4.0):
         ACFs[:,i] = autocorr_func_1d(data[:,i])
 
     # need N>1 for resampling in Jackknife to work
-    if N < 1:
-        statistic = lambda x: np.mean(x, axis=1)
-        ACF, _, ACF_err, _ = jackknife_stats(ACFs, statistic, 0.95)
+    if N > 1:
+        ACF = np.empty(ACFs.shape[0])
+        ACF_err = np.empty(ACFs.shape[0])
+        for i in range(ACFs.shape[0]):
+            ACF[i], _, ACF_err[i], _ = jackknife_stats(ACFs[i], np.mean, 0.95)      
     else:
         ACF = np.mean(ACFs, axis=1)
         ACF_err = np.std(ACFs, axis=1) / np.sqrt(N)
@@ -99,3 +102,64 @@ def correlator(data, c=4.0):
     delta_t = t2-t1
 
     return ts, ACF, ACF_err, IAT, IAT_err, delta_t
+
+
+def autocorrelator(data, c=4.0):
+    '''Alias for autocorrelator_repeats when the data has been observed only once.
+    data is of shape (M,)'''
+    return autocorrelator_repeats(data.reshape((data.shape[0], 1)))
+
+
+def corr_func_1D(x, y):
+    '''Computes the correlation between the equal length 1D arrays x, y using the cross correlation theorem.
+    FFTs yield circular convolutions, such that x and y are assumed to have periodic boundary conditions. 
+    When the data is not circular, need to pad it with zeros as done in autocorr_func_1d.
+
+    Returns
+    cf: 1D array of same length as x and y
+        correlation function between the data in x and y   
+    '''
+    f = np.fft.fft(x)
+    g = np.fft.fft(y)
+    cf = np.fft.ifft(f * np.conjugate(g)).real
+
+    return cf
+
+
+def correlator_repeats(xs, ys):
+    '''Find correlation function using FFTs between two equally sized 1D arrays for which several measurements exists. 
+    Each column presents a new observation and correlations are computed along axis 0. The final CF is the average along axis 1.
+
+    xs, ys: (N,M) array
+        M measurements of a data vector of length N
+
+    Returns
+    CF: (N,) array
+        average correlation function based on the M measurements 
+    CF_err (N,) array
+        Jackknife error of the CF
+    '''
+    M = xs.shape[1] # number of measurements
+
+    # get ACF and its error
+    CFs = np.zeros_like(xs)
+    for i in range(M):
+        CFs[:,i] = corr_func_1D(xs[:,i], ys[:,i])
+     
+    # need M>1 for resampling in Jackknife to work
+    if M > 1:
+        CF = np.empty(CFs.shape[0])
+        CF_err = np.empty(CFs.shape[0])
+        for i, row in enumerate(CFs):
+            CF[i], _, CF_err[i], _ = jackknife_stats(row, np.mean, 0.95)
+    else:
+        CF = np.mean(CFs, axis=1)
+        CF_err = np.std(CFs, axis=1) / np.sqrt(M)
+
+    return CF, CF_err
+
+
+def correlator(xs, ys):
+    '''Alias for correlator_repeats when the x and y have been observed only once.
+    xs and ys are arrays of shape (N,)'''
+    return autocorrelator_repeats(xs.reshape((xs.shape[0], 1)), ys.reshape((ys.shape[0], 1)))

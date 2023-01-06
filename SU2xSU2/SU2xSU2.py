@@ -10,7 +10,7 @@ from scipy.optimize import curve_fit
 from astropy.stats import jackknife_stats
 
 import SU2_mat_routines as SU2
-from correlations import correlator
+import correlations
 
 
 plt.style.use('science')
@@ -347,7 +347,7 @@ class SU2xSU2():
         for i in range(4):
             # Jackknife error has tendency to be smaller than correction of SEM via IAT
             # ms_avg[i], _, ms_err[i], ms_int[i] = jackknife_stats(ms[:,i], np.mean, 0.95)
-            ts, m_ACF, m_ACF_err, m_IAT, m_IAT_err, delta_t = correlator(ms[:,i].reshape((self.M,1)))
+            ts, m_ACF, m_ACF_err, m_IAT, m_IAT_err, delta_t = correlations.autocorrelator(ms[:,i])
             ms_avg[i] = np.mean(ms[:,i])
             ms_err[i] = np.sqrt(m_IAT/self.M) * np.std(ms[:,i])
 
@@ -405,7 +405,7 @@ class SU2xSU2():
             e[i] = self.action(phi) / (-self.beta * 4 * self.N**2) # definition of internal energy in terms of the action
 
         # e_avg, _, e_err, _ = jackknife_stats(e, np.mean, 0.95)
-        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlator(e.reshape((self.M,1)))
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlations.autocorrelator(e)
         e_avg = np.mean(e)
         e_err = np.sqrt(IAT/self.M) * np.std(e)
         
@@ -449,7 +449,7 @@ class SU2xSU2():
                 c[i] /= self.N**2 # such that we averaged over positions y
     
         # c_avg, _, c_err, _ = jackknife_stats(c, np.mean, 0.95)
-        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlator(c.reshape((self.M,1)))
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlations.autocorrelator(c)
         c_avg = np.mean(c)
         c_err = np.sqrt(IAT/self.M) * np.std(c)
 
@@ -476,7 +476,7 @@ class SU2xSU2():
             suscept[i] = self.susceptibility(phi) / self.N**2
 
         # chi_avg, _, chi_err, _ = jackknife_stats(suscept, np.mean, 0.95)
-        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlator(suscept.reshape((self.M,1)))
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlations.autocorrelator(suscept)
         chi_avg = np.mean(suscept)
         chi_err = np.sqrt(IAT/self.M) * np.std(suscept)
 
@@ -484,3 +484,62 @@ class SU2xSU2():
             return chi_avg, chi_err
 
         return chi_avg, chi_err, IAT, IAT_err
+
+
+    def ww_correlation(self, upper, save_data=False, make_plot=False):
+        ''' Computes the wall to wall correlation as described in the report via the cross correlation theorem.
+        The data can be optionally saved and the correlation function with the fitted exponential plotted.
+
+        upper: int
+            up to which separation (exclusive) in units of the lattice spacing the exponential decay will be fitted  
+            Due to periodic boundary conditions, the correlation function will be symmetric about N/2. To get a largely uncontaminated exponential decay, should use upper << N/2.
+        
+        Returns
+        cor_length: float
+            fitted correlation length in units of the lattice spacing
+        cor_length_err: float
+            error in the fitted correlation length
+        '''
+        ds = np.arange(self.N)
+        ww_cor = np.zeros(self.N)
+        ww_cor_err = np.zeros(self.N)
+        t1 = time.time()
+        for p in range(self.N):
+            for q in range(self.N):
+                # effect of transpose added manually: spatial components reversed sign such that correlation from all components add
+                for k in range(4):
+                    # passes (N,M) arrays: correlations along axis 0 while axis 1 hosts results from repeating the measurement for different configurations
+                    cf, cf_err = correlations.correlator_repeats(self.configs[:,p,:,k].T, self.configs[:,q,:,k].T)  
+                    # prefactor not necessary as normalization divides it out. Included here to make connection to description in report more apparent
+                    ww_cor += 4/self.N**2 * cf
+                    ww_cor_err += 4/self.N**2 * cf_err
+        # normalize
+        ww_cor, ww_cor_err = ww_cor/ww_cor[0], ww_cor_err/ww_cor[0]
+        t2 = time.time()
+        print('Wall correlation time: %s'%(str(timedelta(seconds=t2-t1))))
+
+        if save_data:
+            meta_str = 'N=%d, a=%.3f, beta=%.3f, number of configurations=%d'%(self.N, self.a, self.beta, self.M)
+            np.savetxt('data/wallwall_cor.txt', np.vstack((ds, ww_cor, ww_cor_err)), header=meta_str+'\nRows: separation in units of lattice spacing, correlation function and its error')
+
+
+        def lin_func(x, m, b):
+            return m*x+b
+
+        popt, pcov = curve_fit(lin_func, ds[:upper], np.log(ww_cor[:upper]), sigma=np.log(ww_cor_err[:upper]), absolute_sigma=True) # uses chi2 minimization
+        cor_length = -1/popt[0] # in units of lattice spacing
+        cor_length_err = np.sqrt(pcov[0][0]) # in units of lattice spacing
+
+        if make_plot:
+            fig = plt.figure(figsize=(8,6))
+
+            plt.errorbar(ds, ww_cor, yerr=ww_cor_err, fmt='.', capsize=2)
+            plt.plot(ds[:upper], np.exp(lin_func(ds[:upper],*popt)), label='$\\xi = %.3f \pm %.3f$'%(cor_length, cor_length_err))
+            plt.xlabel(r'lattice separation [$a$]')
+            plt.ylabel('wall-wall correlation')
+            plt.legend(prop={'size':12})
+            fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
+            plt.show()
+            # fig.savefig('plots/wallwall_correlation.pdf')
+
+        return cor_length, cor_length_err
