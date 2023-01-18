@@ -5,6 +5,7 @@ import matplotlib as mpl
 from cycler import cycler
 from astropy.stats import jackknife_stats
 from scipy.optimize import curve_fit
+from alive_progress import alive_bar
 import timeit
 import time
 from datetime import timedelta
@@ -209,30 +210,43 @@ def test_NN():
 ##### Check that leapfrog is reversible #####
 def test_leapfrog():
     N = 16
-    ell = 10 # increase ell at fixed eps to increase error
-    eps = 0.1 # 1/ell
+    ell = 17 # increase ell at fixed eps to increase error
+    eps = 0.7 # 1/ell
     model = SU2xSU2(N, a=1, ell=ell, eps=eps, beta=1)
 
-    # np.random.seed(6)
+    np.random.seed(6)
+    # cold
     # a0 = np.ones((N,N,1))
     # ai = np.zeros((N,N,3))
-    ai = np.random.uniform(-1, 1, size=(N,N,3))
-    a0 = (1 - np.sum(ai**2, axis=2)).reshape((N,N,1))
-    phi_start = np.concatenate([a0,ai], axis=2)
-    pi_start = np.random.standard_normal((N,N,3))
+    # phi_start = np.concatenate([a0,ai], axis=2)
 
-    phi_end, pi_end = model.leapfrog(phi_start, pi_start)
-    phi_start_new, pi_start_new = model.leapfrog(phi_end, -pi_end)
+    # hot
+    a = np.random.standard_normal((N,N,4))
+    phi_start = SU2.renorm(a)
+    
+    # normal
+    # pi_start = np.random.standard_normal((N,N,3))
+    # phi_end, pi_end = model.leapfrog(phi_start, pi_start)
+    # phi_start_new, pi_start_new = model.leapfrog(phi_end, -pi_end)
+
+    # FA
+    model.A = model.kernel_inv_F()
+    pi_start = model.pi_samples()
+    phi_end, pi_end = model.leapfrog_FA(phi_start, pi_start)
+    phi_start_new, pi_start_new = model.leapfrog_FA(phi_end, -pi_end)
+
 
     phi_delta = np.abs(phi_start_new-phi_start)
     pi_delta = np.abs(pi_start_new+pi_start)
 
     print('phi error:')
     print('Total: ', np.sum(phi_delta))
+    print('Per site avg: ', 1/N**2 * np.sum(phi_delta))
     print('Biggest: ', np.max(phi_delta))
 
     print('\npi error:')
     print('Total: ', np.sum(pi_delta))
+    print('Per site avg: ', 1/N**2 * np.sum(pi_delta))
     print('Biggest: ', np.max(pi_delta))
 
 # test_leapfrog()
@@ -257,7 +271,7 @@ def test_equi():
     ai = np.zeros((N,N,3))
     configs[0] = np.concatenate([a0,ai], axis=2)
    
-    for i in range(1,M):
+    for i in range(1,M+1):
         phi = configs[i-1]
         pi = np.random.standard_normal((N,N,3))
         phi_new, pi_new = model.leapfrog(phi, pi)
@@ -282,6 +296,61 @@ def test_equi():
     print('avg KE per site = %.5f +/- %.5f'%(KE_avg, KE_err))
 
 # test_equi()
+
+
+##### Check equipartion for acceleration#####
+def test_equi_FA():
+    '''SU(2) matrix has 3 DoF. Hence expect by equipartition (with k_b T = 1) that the average KE per site is 3*1/2.'''
+    def KE_per_site(pi, N, A):
+        pi_F_mag = np.sum( np.abs(np.fft.fft2(pi, axes=(0,1)))**2, axis=-1 ) # (N,N) find magnitude of FT of each component of momentum in Fourier space. Then sum over all 3 components
+        T = 1/(2*N**2) * np.sum(pi_F_mag*A) # sum over momentum Fourier lattice
+        return T/N**2
+    
+    N, ell, eps = 16, 100, 1/100 # still need to figure out suitable values of ell, eps
+    M = 500
+    model = SU2xSU2(N, a=1, ell=ell, eps=eps, beta=1)
+    configs = np.empty((M+1, N, N, 4))
+    momenta = np.empty((M, N, N, 3))
+    kins = np.empty(M)
+
+    A = model.kernel_inv_F()
+    model.A = A
+
+    # cold start
+    a0 = np.ones((N,N,1))
+    ai = np.zeros((N,N,3))
+    configs[0] = np.concatenate([a0,ai], axis=2)
+
+    n_acc = 0
+    with alive_bar(M) as bar:
+        for i in range(1,M+1):
+            phi = configs[i-1]
+            pi = model.pi_samples()
+            phi_new, pi_new = model.leapfrog_FA(phi, pi)
+
+            delta_H = model.Ham_FA(phi_new,-pi_new) - model.Ham_FA(phi,pi)
+            acc_prob = np.min([1, np.exp(-delta_H)])
+
+            if acc_prob > np.random.random():
+                n_acc += 1
+                configs[i] = phi_new
+                momenta[i-1] = pi_new
+            else:
+                configs[i] = phi 
+                momenta[i-1] = pi
+
+            kins[i] = KE_per_site(momenta[i-1], N, A)
+            bar()
+
+    print('acc rate = %.2f%%'%(n_acc/M*100))
+    # reject 10% burn in
+    burn_in_idx = int(M*0.1) 
+    KE_avg = np.mean(kins[burn_in_idx:])
+    KE_err = np.std(kins[burn_in_idx:]) / np.sqrt(kins[burn_in_idx:].shape)
+
+    print('avg KE per site = %.5f +/- %.5f'%(KE_avg, KE_err))
+
+test_equi_FA()
 
 
 ##### Check disordered phase #####

@@ -2,7 +2,7 @@ import numpy as np
 from SU2xSU2 import SU2xSU2
 
 
-def calibrate(model_paras, sim_paras=None, production_run=False):
+def calibrate(model_paras, sim_paras=None, production_run=False, accel=False):
     '''For a model, specified by the dictionary model_paras, this function calibrates the values of ell and eps to produce an acceptance rate in the desireable range between 60 and 80%.
     When acceptance rate is outside this range, the number of steps is adjusted according to the difference to the ideal acceptance rate of 65%. The step size if fixed by requiring
     trajectories to be of unit length. To avoid getting caught in a loop, the calibration is limited to 10 iterations.
@@ -29,7 +29,7 @@ def calibrate(model_paras, sim_paras=None, production_run=False):
     '''
     if sim_paras is None:
         # default for fast calibration
-        sim_paras = {'M':200, 'thin_freq':1, 'burnin_frac':0.0, 'renorm_freq':10000, 'accel':False, 'store_data':False}
+        sim_paras = {'M':200, 'thin_freq':1, 'burnin_frac':0.0, 'renorm_freq':10000, 'accel':accel, 'store_data':False}
     
     good_acc_rate = False
     count = 0 

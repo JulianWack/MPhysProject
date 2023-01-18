@@ -153,6 +153,50 @@ class SU2xSU2():
         return H 
 
 
+    def Ham_FA(self, phi, pi):
+        '''Analogous to function self.Ham but computes the modified hamiltonian used to accelerate the dynamics.
+        '''
+        pi_F_mag = np.sum( np.abs(np.fft.fft2(pi, axes=(0,1)))**2, axis=-1 ) # (N,N) find magnitude of FT of each component of momentum in Fourier space. Then sum over all 3 components
+        T = 1/(2*self.N**2) * np.sum(pi_F_mag*self.A) # sum over momentum Fourier lattice
+        S = self.action(phi)
+        H = T + S 
+
+        return H
+
+
+    def prod_A_pi(self, pi_F):
+        '''Computes the element wise product of the inverse kernel and the momenta in Fourier space.
+        In the literature often written as the element wise product of A and pi.
+
+        pi_F: (N,N,3) array
+            parameter vector of momenta in Fourier space
+
+        Returns
+            parameter vector of momenta in Fourier space, each site being weighted by the inverse Fourier space kernel
+        '''
+        return np.multiply(self.A.reshape((self.N,self.N,1)), pi_F)
+
+
+    def kernel_inv_F(self):
+        '''Finds inverse of the action kernel computed in the Fourier space, usually referred to as 'A'.
+
+        Returns
+        A: (N,N) array
+            inverse kernel in Fourier space
+        '''
+        x = 0.9
+        # M = 0
+        ks = np.arange(0, self.N) # lattice sites in Fourier space along one direction
+        A = np.zeros((self.N,self.N)) # inverse kernel computed at every site in Fourier space
+        for k in range(self.N):
+            for k_ in range(k,self.N):
+                # A[k,k_] = ( 4*np.sin(np.pi*ks[k]/self.N)**2 + 4*np.sin(np.pi*ks[k_]/self.N)**2 + M**2)**(-1)   
+                A[k,k_] = (1 - x/2 - x/4*(np.cos(np.pi*ks[k]/self.N) + np.cos(np.pi*ks[k_]/self.N)) )**(-1)
+                A[k_,k] = A[k,k_] # exploit symmetry of kernel under exchange of directions 
+
+        return A
+
+
     def pi_dot(self, phi):
         '''Time derivative of pi which is given as i times the derivative of the action wrt. phi.
         pi and pi dot are linear combinations of the Pauli matrices and hence described by 3 real parameters alpha
@@ -213,6 +257,84 @@ class SU2xSU2():
         return phi_cur, pi_cur
 
 
+    def leapfrog_FA(self, phi_old, pi_old):
+        '''
+        Analogous to self.leapfrog but uses the modified EoMs. The momentum update is most efficiently performed in Fourier space.
+        '''
+        def pi_dot_FA(phi):
+            '''Computes time derivative of momentum based on modified dynamics'''
+            pi_dot_F = np.fft.fft2(self.pi_dot(phi), axes=(0,1))
+            return np.real( np.fft.ifft2(self.prod_A_pi(pi_dot_F), axes=(0,1)) )
+
+        # half step in pi, full step in phi
+        pi_dot_dt_half = 0.5*self.eps * pi_dot_FA(phi_old)
+        pi_cur = pi_old + pi_dot_dt_half
+        phi_cur = SU2.dot(self.exp_update(pi_cur*self.eps), phi_old)
+
+        # ell-1 alternating full steps
+        for n in range(self.ell):
+            pi_dot_dt = self.eps * pi_dot_FA(phi_cur)
+            pi_cur = pi_cur + pi_dot_dt
+            phi_cur = SU2.dot(self.exp_update(pi_cur*self.eps), phi_cur)
+    
+        # half step in pi
+        pi_dot_dt_half = 0.5*self.eps * pi_dot_FA(phi_cur)
+        pi_cur = pi_cur + pi_dot_dt_half
+
+        return phi_cur, pi_cur        
+
+
+    def pi_samples(self):
+        '''Returns real space sample of momenta according to the distribution based on the modified kinetic term in the modified hamiltonian.
+        N=even is assumed.
+        Process of mapping between the PI and pi_F only depends on the lattice position (axes 0 and 1) but not on the component considered (axis 2). 
+        Hence, axis 2 does not need to be dealt with explicitly.
+
+        Returns
+        pi: (N,N,3) array
+            samples of the auxillary momentum parameter vector in real space
+        '''
+        # momenta in Fourier space
+        pi_F = np.zeros((self.N, self.N, 3), dtype=complex)
+
+        PI_std = np.sqrt(self.N**2 / self.A) 
+        STD = np.repeat(PI_std[:,:,None], repeats=3, axis=2) # standard deviation is identical for components at same position
+        PI = np.random.normal(loc=0, scale=STD) #  (N,N,3) as returned array matches shape of STD
+
+        # assign special modes for which FT exponential becomes +/-1. To get real pi in real space, the modes must be real themselves.
+        N_2 = int(self.N/2)
+        # two spacial indices
+        pi_F[0,0] = PI[0,0]
+        pi_F[0,N_2] = PI[0,N_2]
+        pi_F[N_2,0] = PI[N_2,0]
+        pi_F[N_2,N_2] = PI[N_2,N_2]
+
+        # one special index
+        pi_F[0,1:N_2] = 1/np.sqrt(2) * (PI[0,1:N_2] + 1j * PI[0,N_2+1:][::-1])
+        pi_F[0,N_2+1:] = np.conj(pi_F[0,1:N_2][::-1]) # imposing hermitean symmetry
+
+        pi_F[N_2,1:N_2] = 1/np.sqrt(2) * (PI[N_2,1:N_2] + 1j * PI[N_2,N_2+1:][::-1])
+        pi_F[N_2,N_2+1:] = np.conj(pi_F[N_2,1:N_2][::-1])
+
+        pi_F[1:N_2,0] = 1/np.sqrt(2) * (PI[1:N_2,0] + 1j * PI[N_2+1:,0][::-1])
+        pi_F[N_2+1:,0] = np.conj(pi_F[1:N_2,0][::-1])
+
+        pi_F[1:N_2,N_2] = 1/np.sqrt(2) * (PI[1:N_2,N_2] + 1j * PI[N_2+1:,N_2][::-1])
+        pi_F[N_2+1:,N_2] = np.conj(pi_F[1:N_2,N_2][::-1])
+
+        # no special index
+        pi_F[1:N_2,1:N_2] = 1/np.sqrt(2) * (PI[1:N_2,1:N_2] + 1j * PI[N_2+1:,N_2+1:][::-1,::-1])
+        pi_F[N_2+1:,N_2+1:] = np.conj(pi_F[1:N_2,1:N_2][::-1,::-1]) # imposing hermitean symmetry
+   
+        pi_F[1:N_2,N_2+1:] = 1/np.sqrt(2) * (PI[1:N_2,N_2+1:] + 1j*PI[N_2+1:,1:N_2][::-1,::-1])
+        pi_F[N_2+1:,1:N_2] = np.conj(pi_F[1:N_2,N_2+1:][::-1,::-1])
+
+        # pi is real by construction
+        pi = np.real(np.fft.ifft2(pi_F, axes=(0,1)))
+
+        return pi
+
+
     def run_HMC(self, M, thin_freq, burnin_frac, renorm_freq=10000, accel=True, store_data=False):
         '''Perform the HMC algorithm to generate lattice configurations using ordinary or accelerated dynamics (accel=True).
         A total of M trajectories will be simulated. The final chain of configurations will reject the first M*burnin_frac samples as burn in and 
@@ -252,6 +374,9 @@ class SU2xSU2():
         a = np.random.standard_normal((self.N,self.N,4))
         configs[0] = SU2.renorm(a)
 
+        if accel:
+            self.A = self.kernel_inv_F()
+
         with alive_bar(M) as bar:
             for i in range(1, configs.shape[0]):
                 phi = configs[i-1]   
@@ -259,11 +384,17 @@ class SU2xSU2():
                     if i % renorm_freq == 0:
                         SU2.renorm(phi)
 
-                # the conjugate momenta are linear combination of Pauli matrices and thus described by 3 parameters
-                pi = np.random.standard_normal((self.N,self.N,3))
+                if accel: 
+                    pi = self.pi_samples()
+                    phi_new, pi_new = self.leapfrog_FA(phi, pi)
+                    delta_Hs[i-1] = self.Ham_FA(phi_new,-pi_new) - self.Ham_FA(phi,pi)
 
-                phi_new, pi_new = self.leapfrog(phi, pi)
-                delta_Hs[i-1] = self.Ham(phi_new,-pi_new) - self.Ham(phi,pi)
+                else:
+                    # the conjugate momenta are linear combination of Pauli matrices and thus described by 3 parameters
+                    pi = np.random.standard_normal((self.N,self.N,3))
+                    phi_new, pi_new = self.leapfrog(phi, pi)
+                    delta_Hs[i-1] = self.Ham(phi_new,-pi_new) - self.Ham(phi,pi)
+
                 acc_prob = np.min([1, np.exp(-delta_Hs[i-1])])
 
                 if acc_prob > np.random.random():
@@ -488,13 +619,9 @@ class SU2xSU2():
         return chi_avg, chi_err, IAT, IAT_err
 
 
-    def ww_correlation(self, upper, save_data=False, make_plot=False):
+    def ww_correlation(self, save_data=False, make_plot=False):
         ''' Computes the wall to wall correlation as described in the report via the cross correlation theorem.
-        The data can be optionally saved and the correlation function with the fitted exponential plotted.
-
-        upper: int
-            up to which separation (exclusive) in units of the lattice spacing the exponential decay will be fitted  
-            Due to periodic boundary conditions, the correlation function will be symmetric about N/2. To get a largely uncontaminated exponential decay, should use upper << N/2.
+        The data can be optionally saved and the correlation function with the fitted cosh (due to periodic lattice boundary conditions) plotted.
         
         Returns
         cor_length: float
@@ -502,9 +629,10 @@ class SU2xSU2():
         cor_length_err: float
             error in the fitted correlation length
         '''
-        ds = np.arange(self.N)
-        ww_cor = np.zeros(self.N)
-        ww_cor_err = np.zeros(self.N)
+        # for nicer plotting and fitting include value for separation d=self.N manually as being equivalent to d=0 (using periodic boundary conditions)
+        ds = np.arange(self.N+1)
+        ww_cor = np.zeros(self.N+1)
+        ww_cor_err = np.zeros(self.N+1)
         t1 = time.time()
         for p in range(self.N):
             for q in range(self.N):
@@ -513,8 +641,11 @@ class SU2xSU2():
                     # passes (N,M) arrays: correlations along axis 0 while axis 1 hosts results from repeating the measurement for different configurations
                     cf, cf_err = correlations.correlator_repeats(self.configs[:,p,:,k].T, self.configs[:,q,:,k].T)  
                     # prefactor not necessary as normalization divides it out. Included here to make connection to description in report more apparent
-                    ww_cor += 4/self.N**2 * cf
-                    ww_cor_err += 4/self.N**2 * cf_err
+                    # adding value at d=self.N manually requires slicing as cf.shape = (self.N,)
+                    ww_cor[:-1] += 4/self.N**2 * cf
+                    ww_cor_err[:-1] += 4/self.N**2 * cf_err
+
+        ww_cor[-1], ww_cor_err[-1] = ww_cor[0], ww_cor_err[0]
         # normalize
         ww_cor, ww_cor_err = ww_cor/ww_cor[0], ww_cor_err/ww_cor[0]
         t2 = time.time()
@@ -525,18 +656,18 @@ class SU2xSU2():
             np.savetxt('data/wallwall_cor.txt', np.vstack((ds, ww_cor, ww_cor_err)), header=meta_str+'\nRows: separation in units of lattice spacing, correlation function and its error')
 
 
-        def lin_func(x, m, b):
-            return m*x+b
+        def fit_func(x, a, b, c):
+            return np.cosh((x-b)/a) - c
 
-        popt, pcov = curve_fit(lin_func, ds[:upper], np.log(ww_cor[:upper]), sigma=np.log(ww_cor_err[:upper]), absolute_sigma=True) # uses chi2 minimization
-        cor_length = -1/popt[0] # in units of lattice spacing
+        popt, pcov = curve_fit(fit_func, ds, ww_cor, p0=[1,self.N/2,1], sigma=ww_cor_err, absolute_sigma=True) # uses chi2 minimization
+        cor_length = popt[0] # in units of lattice spacing
         cor_length_err = np.sqrt(pcov[0][0]) # in units of lattice spacing
 
         if make_plot:
             fig = plt.figure(figsize=(8,6))
 
             plt.errorbar(ds, ww_cor, yerr=ww_cor_err, fmt='.', capsize=2)
-            plt.plot(ds[:upper], np.exp(lin_func(ds[:upper],*popt)), label='$\\xi = %.3f \pm %.3f$'%(cor_length, cor_length_err))
+            plt.plot(ds, fit_func(ds,*popt), label='$\\xi = %.3f \pm %.3f$'%(cor_length, cor_length_err))
             plt.xlabel(r'lattice separation [$a$]')
             plt.ylabel('wall-wall correlation')
             plt.legend(prop={'size':12})
