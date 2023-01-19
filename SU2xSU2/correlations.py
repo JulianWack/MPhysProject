@@ -154,12 +154,14 @@ def correlator_repeats(xs, ys):
             CF[i], _, CF_err[i], _ = jackknife_stats(row, np.mean, 0.95)
     else:
         CF = np.mean(CFs, axis=1)
-        CF_err = np.std(CFs, axis=1) / np.sqrt(M)
+        # each value of the CF has only one observation. Hence no error can be estimated
+        CF_err = np.zeros_like(CF)
 
     return CF, CF_err
 
 
 def correlator(xs, ys):
     '''Alias for correlator_repeats when the x and y have been observed only once.
-    xs and ys are arrays of shape (N,)'''
-    return autocorrelator_repeats(xs.reshape((xs.shape[0], 1)), ys.reshape((ys.shape[0], 1)))
+    xs and ys are arrays of shape (N,)
+    Note that this implies, no error on the correlation function can be estimated.'''
+    return correlator_repeats(xs.reshape((xs.shape[0], 1)), ys.reshape((ys.shape[0], 1)))

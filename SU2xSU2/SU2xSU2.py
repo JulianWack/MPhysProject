@@ -109,31 +109,6 @@ class SU2xSU2():
         return S
 
 
-    def susceptibility(self, phi):
-        '''
-        Computes the susceptibility for lattice configuration phi
-        phi: (N,N,4) array
-            parameter values of SU(2) matrices at each lattice site
-
-        Returns
-        Chi: float
-            the susceptibility
-        '''
-        # find product of phi with phi at every other lattice position y
-        G = np.zeros((self.N,self.N))
-        for i in range(self.N**2):
-            phi_flat = phi.flatten()
-            shifted = np.roll(phi_flat, -i)
-            phi_at_y = shifted.reshape(phi.shape)
-             
-            A = SU2.dot(phi, SU2.hc(phi_at_y))
-            G += SU2.tr(A + SU2.hc(A))
-
-        Chi = 1/2 * np.sum(G)
-
-        return Chi
-
-
     def Ham(self, phi, pi):
         '''
         Computes the Hamiltonian for a lattice configuration phi, pi
@@ -527,7 +502,7 @@ class SU2xSU2():
         e_avg: float
             action per site when averaged over all accepted configurations
         e_err: float
-            Jackknife error of average
+            SEM modified by sqrt(IAT) (or Jackknife error of average)
         IAT: float
             integrated autocorrelation time for action per site
         IAT_err float
@@ -548,79 +523,53 @@ class SU2xSU2():
         return e_avg, e_err, IAT, IAT_err
 
 
-    def specific_heat_per_site(self, get_IAT=True):
-        '''Computes the specific heat per site for each accepted lattice configuration and optionally finds the associated IAT.
-        The specific heat is deduced as the average covariance of the internal energy following eq 1 of https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.45.1755 
-        Returns:
-        c_avg: float
-            specific heat per site when averaged over all accepted configurations
-        c_err: float
-            Jackknife error of average
-        IAT: float
-            integrated autocorrelation time for specific heat per site
-        IAT_err float
-            error of IAT 
-        '''
-        c = np.empty(self.M)
-        for i,phi in enumerate(self.configs):
-            # find internal energy as done in self.action but don't sum over all sites
-            phi_hc = SU2.hc(phi)
-            phi_NN = phi[self.NN_mask]
+    # def specific_heat_per_site(self, get_IAT=True):
+    #     '''Computes the specific heat per site for each accepted lattice configuration and optionally finds the associated IAT.
+    #     The specific heat is deduced as the average covariance of the internal energy following eq 1 of https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.45.1755 
+    #     Returns:
+    #     c_avg: float
+    #         specific heat per site when averaged over all accepted configurations
+    #     c_err: float
+    #         Jackknife error of average
+    #     IAT: float
+    #         integrated autocorrelation time for specific heat per site
+    #     IAT_err float
+    #         error of IAT 
+    #     '''
+    #     c = np.empty(self.M)
+    #     for i,phi in enumerate(self.configs):
+    #         # find internal energy as done in self.action but don't sum over all sites
+    #         phi_hc = SU2.hc(phi)
+    #         phi_NN = phi[self.NN_mask]
 
-            G = np.zeros((self.N,self.N)) # energy at each site
-            for k in [0,3]:
-                A = SU2.dot(phi_hc, phi_NN[:,:,k,:])
-                G += SU2.tr(A + SU2.hc(A)) 
+    #         G = np.zeros((self.N,self.N)) # energy at each site
+    #         for k in [0,3]:
+    #             A = SU2.dot(phi_hc, phi_NN[:,:,k,:])
+    #             G += SU2.tr(A + SU2.hc(A)) 
 
-                for j in range(self.N**2):
-                    G_flat = G.flatten()
-                    shifted = np.roll(G_flat, -j)
-                    G_at_y = shifted.reshape(G.shape)
+    #             for j in range(self.N**2):
+    #                 G_flat = G.flatten()
+    #                 shifted = np.roll(G_flat, -j)
+    #                 G_at_y = shifted.reshape(G.shape)
 
-                    c[i] += (np.mean(G*G_at_y) + np.mean(G)**2) / self.N**2 # identical to np.mean(G)*np.mean(G_at_Y)
+    #                 c[i] += (np.mean(G*G_at_y) + np.mean(G)**2) / self.N**2 # identical to np.mean(G)*np.mean(G_at_Y)
 
-                c[i] /= self.N**2 # such that we averaged over positions y
+    #             c[i] /= self.N**2 # such that we averaged over positions y
     
-        # c_avg, _, c_err, _ = jackknife_stats(c, np.mean, 0.95)
-        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlations.autocorrelator(c)
-        c_avg = np.mean(c)
-        c_err = np.sqrt(IAT/self.M) * np.std(c)
+    #     # c_avg, _, c_err, _ = jackknife_stats(c, np.mean, 0.95)
+    #     ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlations.autocorrelator(c)
+    #     c_avg = np.mean(c)
+    #     c_err = np.sqrt(IAT/self.M) * np.std(c)
 
-        if not get_IAT:
-            return c_avg, c_err
+    #     if not get_IAT:
+    #         return c_avg, c_err
 
-        return c_avg, c_err, IAT, IAT_err        
-
-
-    def susceptibility_per_site(self, get_IAT=True):
-        '''Computes the susceptibility per site for each accepted lattice configuration and optionally finds the associated IAT.
-        Returns:
-        chi_avg: float
-            susceptibility per site when averaged over all accepted configurations
-        chi_err: float
-            Jackknife error of average
-        IAT: float
-            integrated autocorrelation time for susceptibility per site
-        IAT_err float
-            error of IAT 
-        '''
-        suscept = np.empty(self.M)
-        for i,phi in enumerate(self.configs):
-            suscept[i] = self.susceptibility(phi) / self.N**2
-
-        # chi_avg, _, chi_err, _ = jackknife_stats(suscept, np.mean, 0.95)
-        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlations.autocorrelator(suscept)
-        chi_avg = np.mean(suscept)
-        chi_err = np.sqrt(IAT/self.M) * np.std(suscept)
-
-        if not get_IAT:
-            return chi_avg, chi_err
-
-        return chi_avg, chi_err, IAT, IAT_err
+    #     return c_avg, c_err, IAT, IAT_err        
 
 
     def ww_correlation(self, save_data=False, make_plot=False):
-        ''' Computes the wall to wall correlation as described in the report via the cross correlation theorem.
+        ''' 
+        Computes the wall to wall correlation as described in the report via the cross correlation theorem.
         The data can be optionally saved and the correlation function with the fitted cosh (due to periodic lattice boundary conditions) plotted.
         
         Returns
@@ -676,3 +625,72 @@ class SU2xSU2():
             # fig.savefig('plots/wallwall_correlation.pdf')
 
         return cor_length, cor_length_err
+
+
+    def susceptibility_naive(self, phi):
+        '''
+        Computes the susceptibility for lattice configuration phi.
+        Equivalent to self.susceptibility but slower when self.N > 40. Hence only advised to use for small lattices.
+        phi: (N,N,4) array
+            parameter values of SU(2) matrices at each lattice site
+
+        Returns
+        Chi: float
+            the susceptibility
+        '''
+        # find product of phi with phi at every other lattice position y
+        # phi_y is obtained by shifting the lattice by one position each loop
+        G = np.zeros((self.N,self.N))
+        for i in range(self.N):
+            for j in range(self.N):
+                phi_y = np.roll(phi, shift=(i,j), axis=(0,1))
+                A = SU2.dot(phi, SU2.hc(phi_y))
+                G += SU2.tr(A + SU2.hc(A))
+
+        Chi = np.sum(G) / (2*self.N**2)
+
+        return Chi
+
+
+    def susceptibility(self, phi):
+        '''
+        Computes the susceptibility i.e. the average point to point correlation for configuration phi.
+        As described in the report, this closely related to summing the wall to wall correlation function which can be computed efficiently via the cross correlation theorem.
+
+        Returns:
+        chi: float
+            susceptibility of the passed configuration phi
+        '''
+        ww_cor = np.zeros(self.N)
+        ww_cor_err = np.zeros(self.N)
+        for p in range(self.N):
+            for q in range(self.N):
+                # effect of transpose added manually: spatial components reversed sign such that correlation from all components add
+                for k in range(4):
+                    cf, _ = correlations.correlator(phi[p,:,k], phi[q,:,k])
+                    ww_cor += 2/self.N**2 * cf
+
+        chi = np.sum(ww_cor)
+
+        return chi
+
+
+    def susceptibility_IAT(self):
+        '''Computes the IAT and the associated error for the susceptibilities of the chain.
+
+        Returns:
+        IAT: float
+            integrated autocorrelation time for susceptibility
+        IAT_err float
+            error of IAT 
+        '''
+        chis = np.empty(self.M)
+        for i,phi in enumerate(self.configs):
+            chis[i], _ = self.susceptibility(phi)
+
+        # chi_avg, _, chi_err, _ = jackknife_stats(chis, np.mean, 0.95)
+        # chi_avg = np.mean(chis)
+        # chi_err = np.sqrt(IAT/self.M) * np.std(chis)
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlations.autocorrelator(chis)
+
+        return IAT, IAT_err

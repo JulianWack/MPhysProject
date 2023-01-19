@@ -350,7 +350,7 @@ def test_equi_FA():
 
     print('avg KE per site = %.5f +/- %.5f'%(KE_avg, KE_err))
 
-test_equi_FA()
+# test_equi_FA()
 
 
 ##### Check disordered phase #####
@@ -483,3 +483,56 @@ def get_ww_naive():
     return
     
 # ds, ww_cor, ww_cor_err = get_ww_naive()
+
+
+##### naive and FFT based computation of susceptibility #####
+def compute_chi():
+    '''Compares naive double sum and cross correlation theorem approach to computing the susceptibility.
+    '''
+    model = SU2xSU2(N=64, a=1, ell=7, eps=1/7, beta=1)
+
+    # test extreme case in which chi=2*N^2
+    config = np.zeros((model.N,model.N,4))
+    config[:,:,0] = 1
+    # choose a random configuration from the chain
+    # model.run_HMC(2000, 20, 0.1, accel=False, store_data=False) 
+    # config = model.configs[-10]
+    
+    t1 = time.time()
+    chi_cross_cor  = model.susceptibility(config)
+    t2 = time.time()
+    print('cross_cor result: %.3f'%chi_cross_cor)
+    print('cross_cor time: %s'%(str(timedelta(seconds=t2-t1))))
+
+
+    def susceptibility_naive(N, phi):
+        '''
+        Computes the susceptibility for lattice configuration phi
+        phi: (N,N,4) array
+            parameter values of SU(2) matrices at each lattice site
+
+        Returns
+        Chi: float
+            the susceptibility
+        '''
+        # find product of phi with phi at every other lattice position y
+        # phi_y is obtained by shifting the lattice by one position each loop
+        G = np.zeros((N,N))
+        for i in range(N):
+            for j in range(N):
+                phi_y = np.roll(phi, shift=(i,j), axis=(0,1))
+                A = SU2.dot(phi, SU2.hc(phi_y))
+                G += SU2.tr(A + SU2.hc(A))
+
+        Chi = np.sum(G) / (2*N**2)
+
+        return Chi
+
+
+    t1 = time.time()
+    chi_naive  = susceptibility_naive(model.N, config)
+    t2 = time.time()
+    print('naive result: %.3f'%chi_naive)
+    print('naive time: %s'%(str(timedelta(seconds=t2-t1))))
+
+# compute_chi()
