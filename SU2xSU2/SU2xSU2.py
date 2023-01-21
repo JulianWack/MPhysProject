@@ -159,14 +159,14 @@ class SU2xSU2():
         A: (N,N) array
             inverse kernel in Fourier space
         '''
-        x = 0.9
-        # M = 0
+        # x = 0.9 # parameter interpolating between accelerated (x=1) and unaccelerated (x=0) case. Appropriate kernel term given below
+        M = 1
         ks = np.arange(0, self.N) # lattice sites in Fourier space along one direction
         A = np.zeros((self.N,self.N)) # inverse kernel computed at every site in Fourier space
         for k in range(self.N):
             for k_ in range(k,self.N):
-                # A[k,k_] = ( 4*np.sin(np.pi*ks[k]/self.N)**2 + 4*np.sin(np.pi*ks[k_]/self.N)**2 + M**2)**(-1)   
-                A[k,k_] = (1 - x/2 - x/4*(np.cos(np.pi*ks[k]/self.N) + np.cos(np.pi*ks[k_]/self.N)) )**(-1)
+                A[k,k_] = ( 4*np.sin(np.pi*ks[k]/self.N)**2 + 4*np.sin(np.pi*ks[k_]/self.N)**2 + M**2)**(-1)   
+                # A[k,k_] = (1 - x/2 - x/4*(np.cos(np.pi*ks[k]/self.N) + np.cos(np.pi*ks[k_]/self.N)) )**(-1)
                 A[k_,k] = A[k,k_] # exploit symmetry of kernel under exchange of directions 
 
         return A
@@ -234,29 +234,30 @@ class SU2xSU2():
 
     def leapfrog_FA(self, phi_old, pi_old):
         '''
-        Analogous to self.leapfrog but uses the modified EoMs. The momentum update is most efficiently performed in Fourier space.
+        Analogous to self.leapfrog but uses the modified EoMs.
         '''
-        def pi_dot_FA(phi):
-            '''Computes time derivative of momentum based on modified dynamics'''
-            pi_dot_F = np.fft.fft2(self.pi_dot(phi), axes=(0,1))
-            return np.real( np.fft.ifft2(self.prod_A_pi(pi_dot_F), axes=(0,1)) )
+        def pi_FA(pi):
+            '''Computes the modified momentum term entering in the exponential update in the accelerated dynamics.
+            The modified momentum is given by the ordinary momentum pi, weighted by the inverse kernel which is easiest computed in Fourier space.'''
+            pi_F = np.fft.fft2(pi, axes=(0,1))
+            return np.real( np.fft.ifft2(self.prod_A_pi(pi_F), axes=(0,1)) )
 
         # half step in pi, full step in phi
-        pi_dot_dt_half = 0.5*self.eps * pi_dot_FA(phi_old)
+        pi_dot_dt_half = 0.5*self.eps * self.pi_dot(phi_old)
         pi_cur = pi_old + pi_dot_dt_half
-        phi_cur = SU2.dot(self.exp_update(pi_cur*self.eps), phi_old)
+        phi_cur = SU2.dot( self.exp_update(pi_FA(pi_cur)*self.eps), phi_old )
 
         # ell-1 alternating full steps
         for n in range(self.ell):
-            pi_dot_dt = self.eps * pi_dot_FA(phi_cur)
+            pi_dot_dt = self.eps * self.pi_dot(phi_cur)
             pi_cur = pi_cur + pi_dot_dt
-            phi_cur = SU2.dot(self.exp_update(pi_cur*self.eps), phi_cur)
+            phi_cur = SU2.dot( self.exp_update(pi_FA(pi_cur)*self.eps), phi_cur )
     
         # half step in pi
-        pi_dot_dt_half = 0.5*self.eps * pi_dot_FA(phi_cur)
+        pi_dot_dt_half = 0.5*self.eps * self.pi_dot(phi_cur)
         pi_cur = pi_cur + pi_dot_dt_half
 
-        return phi_cur, pi_cur        
+        return phi_cur, pi_cur
 
 
     def pi_samples(self):
@@ -301,7 +302,7 @@ class SU2xSU2():
         pi_F[1:N_2,1:N_2] = 1/np.sqrt(2) * (PI[1:N_2,1:N_2] + 1j * PI[N_2+1:,N_2+1:][::-1,::-1])
         pi_F[N_2+1:,N_2+1:] = np.conj(pi_F[1:N_2,1:N_2][::-1,::-1]) # imposing hermitean symmetry
    
-        pi_F[1:N_2,N_2+1:] = 1/np.sqrt(2) * (PI[1:N_2,N_2+1:] + 1j*PI[N_2+1:,1:N_2][::-1,::-1])
+        pi_F[1:N_2,N_2+1:] = 1/np.sqrt(2) * (PI[1:N_2,N_2+1:] + 1j * PI[N_2+1:,1:N_2][::-1,::-1])
         pi_F[N_2+1:,1:N_2] = np.conj(pi_F[1:N_2,N_2+1:][::-1,::-1])
 
         # pi is real by construction
@@ -329,7 +330,7 @@ class SU2xSU2():
         store_data: bool
             store simulation parameters and data    
         '''
-        np.random.seed(42) # for debugging
+        # np.random.seed(42) # for debugging
         t1 = time.time()
         # Collection of produced lattice configurations. Each one is (N,N,4) such that at each site the 4 parameters describing the associated SU(2) matrix are stored
         configs = np.empty((M+1, self.N, self.N, 4)) 
@@ -425,7 +426,7 @@ class SU2xSU2():
         if make_plot:
             fig = plt.figure(figsize=(8,6))
             plt.scatter(self.sweeps, np.exp(-self.delta_Hs), s=2) 
-            plt.hlines(1, self.sweeps[0], self.sweeps[-1], linestyles='-', color='r')
+            plt.hlines(exp__dH_avg, self.sweeps[0], self.sweeps[-1], linestyles='-', color='r')
             plt.xlabel('HMC sweep')
             plt.ylabel('$\exp^{-\delta H}$')
             plt.show()

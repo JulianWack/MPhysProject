@@ -3,16 +3,16 @@ from SU2xSU2 import SU2xSU2
 from calibrate_paras import calibrate
 
 # manual parameters
-# model = SU2xSU2(N=16, a=1, ell=7, eps=1/7, beta=1)
-# model.run_HMC(2000, 20, 0.1, accel=False, store_data=False)  
+# model = SU2xSU2(N=16, a=1, ell=3, eps=1/3, beta=1)
+# model.run_HMC(2000, 1, 0.1, accel=True, store_data=False)  
 
 # automatic calibration
-model_paras = {'N':16, 'a':1, 'ell':10, 'eps':1/10, 'beta':2}
-paras_calibrated = calibrate(model_paras, accel=False)
-print('calibration completed!')
-sim_paras = {'M':10000, 'thin_freq':10, 'burnin_frac':0.1, 'accel':False, 'store_data':False}
-model, paras = calibrate(paras_calibrated, sim_paras, production_run=True)
-print('Parameters used during production run: ',paras)
+# model_paras = {'N':16, 'a':1, 'ell':3, 'eps':1/3, 'beta':1}
+# paras_calibrated = calibrate(model_paras, accel=True)
+# print('calibration completed!')
+# sim_paras = {'M':2000, 'thin_freq':10, 'burnin_frac':0.1, 'accel':True, 'store_data':False}
+# model, paras = calibrate(paras_calibrated, sim_paras, production_run=True)
+# print('Parameters used during production run: ',paras)
 
 # load stored simulation
 # paras = np.loadtxt('data/single_run/model_paras.txt')
@@ -38,8 +38,8 @@ print('Parameters used during production run: ',paras)
 # print('action per site = %.5f +/- %.5f'%(s_avg, s_err))
 # print('IAT = %.5f +/- %.5f \n'%(IAT_s, IAT_s_err))
 
-cor_len, cor_len_err = model.ww_correlation(make_plot=True)
-print('correlation length = %.5f +/- %.5f \n'%(cor_len, cor_len_err))
+# cor_len, cor_len_err = model.ww_correlation(make_plot=True)
+# print('correlation length = %.5f +/- %.5f \n'%(cor_len, cor_len_err))
 
 # chi_avg, chi_err, IAT_chi, IAT_chi_err = model.susceptibility_per_site() 
 # print('susceptibility per site = %.5f +/- %.5f'%(chi_avg, chi_err))

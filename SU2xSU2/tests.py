@@ -306,9 +306,9 @@ def test_equi_FA():
         T = 1/(2*N**2) * np.sum(pi_F_mag*A) # sum over momentum Fourier lattice
         return T/N**2
     
-    N, ell, eps = 16, 100, 1/100 # still need to figure out suitable values of ell, eps
-    M = 500
-    model = SU2xSU2(N, a=1, ell=ell, eps=eps, beta=1)
+    N, ell, eps = 32, 4, 1/4 # found manually/ by using calibration routine 
+    M = 1000
+    model = SU2xSU2(N, a=0.3, ell=ell, eps=eps, beta=0.75)
     configs = np.empty((M+1, N, N, 4))
     momenta = np.empty((M, N, N, 3))
     kins = np.empty(M)
@@ -316,10 +316,12 @@ def test_equi_FA():
     A = model.kernel_inv_F()
     model.A = A
 
-    # cold start
-    a0 = np.ones((N,N,1))
-    ai = np.zeros((N,N,3))
-    configs[0] = np.concatenate([a0,ai], axis=2)
+    # cold start: seems to have problems evolving away from starting configuration (get 0% acceptance). Hence use hot start.
+    # a0 = np.ones((N,N,1))
+    # ai = np.zeros((N,N,3))
+    # configs[0] = np.concatenate([a0,ai], axis=2)
+    a = np.random.standard_normal((N,N,4))
+    configs[0] = SU2.renorm(a)
 
     n_acc = 0
     with alive_bar(M) as bar:
@@ -339,7 +341,7 @@ def test_equi_FA():
                 configs[i] = phi 
                 momenta[i-1] = pi
 
-            kins[i] = KE_per_site(momenta[i-1], N, A)
+            kins[i-1] = KE_per_site(momenta[i-1], N, A)
             bar()
 
     print('acc rate = %.2f%%'%(n_acc/M*100))
