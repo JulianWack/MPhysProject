@@ -522,51 +522,7 @@ class SU2xSU2():
             return e_avg, e_err
         
         return e_avg, e_err, IAT, IAT_err
-
-
-    # def specific_heat_per_site(self, get_IAT=True):
-    #     '''Computes the specific heat per site for each accepted lattice configuration and optionally finds the associated IAT.
-    #     The specific heat is deduced as the average covariance of the internal energy following eq 1 of https://journals.aps.org/prl/abstract/10.1103/PhysRevLett.45.1755 
-    #     Returns:
-    #     c_avg: float
-    #         specific heat per site when averaged over all accepted configurations
-    #     c_err: float
-    #         Jackknife error of average
-    #     IAT: float
-    #         integrated autocorrelation time for specific heat per site
-    #     IAT_err float
-    #         error of IAT 
-    #     '''
-    #     c = np.empty(self.M)
-    #     for i,phi in enumerate(self.configs):
-    #         # find internal energy as done in self.action but don't sum over all sites
-    #         phi_hc = SU2.hc(phi)
-    #         phi_NN = phi[self.NN_mask]
-
-    #         G = np.zeros((self.N,self.N)) # energy at each site
-    #         for k in [0,3]:
-    #             A = SU2.dot(phi_hc, phi_NN[:,:,k,:])
-    #             G += SU2.tr(A + SU2.hc(A)) 
-
-    #             for j in range(self.N**2):
-    #                 G_flat = G.flatten()
-    #                 shifted = np.roll(G_flat, -j)
-    #                 G_at_y = shifted.reshape(G.shape)
-
-    #                 c[i] += (np.mean(G*G_at_y) + np.mean(G)**2) / self.N**2 # identical to np.mean(G)*np.mean(G_at_Y)
-
-    #             c[i] /= self.N**2 # such that we averaged over positions y
-    
-    #     # c_avg, _, c_err, _ = jackknife_stats(c, np.mean, 0.95)
-    #     ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlations.autocorrelator(c)
-    #     c_avg = np.mean(c)
-    #     c_err = np.sqrt(IAT/self.M) * np.std(c)
-
-    #     if not get_IAT:
-    #         return c_avg, c_err
-
-    #     return c_avg, c_err, IAT, IAT_err        
-
+      
 
     def ww_correlation(self, save_data=False, make_plot=False):
         ''' 

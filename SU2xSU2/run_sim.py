@@ -34,17 +34,9 @@ from calibrate_paras import calibrate
 # for i,(avg, err) in enumerate(zip(m_avg, m_err)):
 #         print('<m_%d> : %.5f +/- %.5f'%(i, avg, err))
 
-# s_avg, s_err, IAT_s, IAT_s_err = model.action_per_site() 
+# s_avg, s_err, IAT_s, IAT_s_err = model.internal_energy_density() 
 # print('action per site = %.5f +/- %.5f'%(s_avg, s_err))
 # print('IAT = %.5f +/- %.5f \n'%(IAT_s, IAT_s_err))
 
 # cor_len, cor_len_err = model.ww_correlation(make_plot=True)
 # print('correlation length = %.5f +/- %.5f \n'%(cor_len, cor_len_err))
-
-# chi_avg, chi_err, IAT_chi, IAT_chi_err = model.susceptibility_per_site() 
-# print('susceptibility per site = %.5f +/- %.5f'%(chi_avg, chi_err))
-# print('IAT = %.5f +/- %.5f \n'%(IAT_chi, IAT_chi_err))
-
-# c_avg, c_err, IAT_c, IAT_c_err = model.specific_heat_per_site() 
-# print('specific heat per site = %.5f +/- %.5f'%(c_avg, c_err))
-# print('IAT = %.5f +/- %.5f'%(IAT_c, IAT_c_err))
