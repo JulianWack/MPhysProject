@@ -538,3 +538,44 @@ def compute_chi():
     print('naive time: %s'%(str(timedelta(seconds=t2-t1))))
 
 # compute_chi()
+
+
+def chi_speed_compare():
+    '''
+    Makes plot to compare speed of chi computation using naive double sum or the cross correlation theorem.
+    '''
+    Ns = np.linspace(10, 512, num=15, endpoint=True, dtype=int) # naive method can take upto 1e4 sec for single calculation at N approx 400 
+    ts_crosscor = np.empty_like(Ns, dtype=float)
+    ts_naive = np.empty_like(Ns, dtype=float)
+
+    for i,N in enumerate(Ns):
+        a = np.random.standard_normal((N,N,4))
+        phi = SU2.renorm(a)
+        # all parameters except N are arbitary
+        model = SU2xSU2(N=N, a=1, ell=7, eps=1/7, beta=1)
+
+        t1 = time.time()
+        chi_cross_cor  = model.susceptibility(phi)
+        t2 = time.time()
+        ts_crosscor[i] = t2-t1
+
+        t1 = time.time()
+        chi_cross_cor  = model.susceptibility_naive(phi)
+        t2 = time.time()
+        ts_naive[i] = t2-t1
+        print('Completed N = ',N)
+
+    fig = plt.figure(figsize=(8,6))
+    plt.plot(Ns, ts_naive, c='k', label='double sum')
+    plt.plot(Ns, ts_crosscor, c='g', label='cross correlation')
+    plt.xlabel('lattice size N')
+    plt.ylabel('CPU time [sec]')
+    plt.yscale('log')
+    plt.legend(prop={'size': 12})
+    plt.show()
+    # fig.savefig('plots/chi_speed.pdf')
+
+    data = np.row_stack((Ns, ts_crosscor, ts_naive))
+    np.savetxt('data/chi_speed.txt', data, header='lattice size N, CPU time via cross correlation thm, CPU time via double sum')
+
+# chi_speed_compare()
