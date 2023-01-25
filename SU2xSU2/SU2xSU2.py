@@ -426,9 +426,10 @@ class SU2xSU2():
         if make_plot:
             fig = plt.figure(figsize=(8,6))
             plt.scatter(self.sweeps, np.exp(-self.delta_Hs), s=2) 
-            plt.hlines(exp__dH_avg, self.sweeps[0], self.sweeps[-1], linestyles='-', color='r')
+            plt.hlines(exp__dH_avg, self.sweeps[0], self.sweeps[-1], linestyles='-', color='r', label=r'$\langle e^{-\Delta H} \rangle = %.3f \pm %.3f$'%(exp__dH_avg, exp__dH_err))
             plt.xlabel('HMC sweep')
-            plt.ylabel('$\exp^{-\delta H}$')
+            plt.ylabel('$\exp^{-\Delta H}$')
+            plt.legend(prop={'size': 12})
             plt.show()
             # fig.savefig('plots/deltaH_vs_sweeps.pdf')
 
@@ -592,7 +593,7 @@ class SU2xSU2():
             parameter values of SU(2) matrices at each lattice site
 
         Returns
-        Chi: float
+        chi: float
             the susceptibility
         '''
         # find product of phi with phi at every other lattice position y
@@ -604,9 +605,9 @@ class SU2xSU2():
                 A = SU2.dot(phi, SU2.hc(phi_y))
                 G += SU2.tr(A + SU2.hc(A))
 
-        Chi = np.sum(G) / (2*self.N**2)
+        chi = np.sum(G) / (2*self.N**2)
 
-        return Chi
+        return chi
 
 
     def susceptibility(self, phi):
