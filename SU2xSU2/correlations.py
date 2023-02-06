@@ -82,15 +82,18 @@ def autocorrelator_repeats(data, c=4.0):
     for i in range(N):
         ACFs[:,i] = autocorr_func_1d(data[:,i])
 
-    # need N>1 for resampling in Jackknife to work
-    if N > 1:
-        ACF = np.empty(ACFs.shape[0])
-        ACF_err = np.empty(ACFs.shape[0])
-        for i in range(ACFs.shape[0]):
-            ACF[i], _, ACF_err[i], _ = jackknife_stats(ACFs[i], np.mean, 0.95)      
-    else:
-        ACF = np.mean(ACFs, axis=1)
-        ACF_err = np.std(ACFs, axis=1) / np.sqrt(N)
+    ACF, ACF_err = np.mean(ACFs, axis=1), np.std(ACFs, axis=1) / np.sqrt(N)
+
+    # could use Jackknife for error estimation but only provided second order corrections (error of the error) and becomes bottleneck for large N
+    # Also need N>1 for resampling in Jackknife to work
+    # if N > 1:
+    #     ACF = np.empty(ACFs.shape[0])
+    #     ACF_err = np.empty(ACFs.shape[0])
+    #     for i in range(ACFs.shape[0]):
+    #         ACF[i], _, ACF_err[i], _ = jackknife_stats(ACFs[i], np.mean, 0.95)      
+    # else:
+    #     ACF = np.mean(ACFs, axis=1)
+    #     ACF_err = np.std(ACFs, axis=1) / np.sqrt(N)
 
     # get all possible IAT and apply windowing
     IATs = 2.0 * np.cumsum(ACF) - 1.0 # IAT defined as 1 + sum starting from separation=1, but cumsum starts with t=0 for which ACF=1
@@ -145,17 +148,19 @@ def correlator_repeats(xs, ys):
     CFs = np.zeros_like(xs)
     for i in range(M):
         CFs[:,i] = corr_func_1D(xs[:,i], ys[:,i])
+
+    CF, CF_err = np.mean(CFs, axis=1), np.std(CFs, axis=1) / np.sqrt(M)
      
-    # need M>1 for resampling in Jackknife to work
-    if M > 1:
-        CF = np.empty(CFs.shape[0])
-        CF_err = np.empty(CFs.shape[0])
-        for i, row in enumerate(CFs):
-            CF[i], _, CF_err[i], _ = jackknife_stats(row, np.mean, 0.95)
-    else:
-        CF = np.mean(CFs, axis=1)
-        # each value of the CF has only one observation. Hence no error can be estimated
-        CF_err = np.zeros_like(CF)
+    # # need M>1 for resampling in Jackknife to work
+    # if M > 1:
+    #     CF = np.empty(CFs.shape[0])
+    #     CF_err = np.empty(CFs.shape[0])
+    #     for i, row in enumerate(CFs):
+    #         CF[i], _, CF_err[i], _ = jackknife_stats(row, np.mean, 0.95)
+    # else:
+    #     CF = np.mean(CFs, axis=1)
+    #     # each value of the CF has only one observation. Hence no error can be estimated
+    #     CF_err = np.zeros_like(CF)
 
     return CF, CF_err
 

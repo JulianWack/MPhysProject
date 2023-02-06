@@ -525,10 +525,11 @@ class SU2xSU2():
         return e_avg, e_err, IAT, IAT_err
       
 
-    def ww_correlation(self, save_data=False, make_plot=False):
+    def ww_correlation(self, save_data=False, file_name='wallwall_cor.txt', make_plot=False):
         ''' 
         Computes the wall to wall correlation as described in the report via the cross correlation theorem.
         The data can be optionally saved and the correlation function with the fitted cosh (due to periodic lattice boundary conditions) plotted.
+        Note that the filename must have end in .txt and can only be a path relative to the data directory if the required folders exist.
         
         Returns
         cor_length: float
@@ -538,20 +539,18 @@ class SU2xSU2():
         '''
         # for nicer plotting and fitting include value for separation d=self.N manually as being equivalent to d=0 (using periodic boundary conditions)
         ds = np.arange(self.N+1)
-        ww_cor = np.zeros(self.N+1)
-        ww_cor_err = np.zeros(self.N+1)
-        t1 = time.time()
-        for p in range(self.N):
-            for q in range(self.N):
-                # effect of transpose added manually: spatial components reversed sign such that correlation from all components add
-                for k in range(4):
-                    # passes (N,M) arrays: correlations along axis 0 while axis 1 hosts results from repeating the measurement for different configurations
-                    cf, cf_err = correlations.correlator_repeats(self.configs[:,p,:,k].T, self.configs[:,q,:,k].T)  
-                    # prefactor not necessary as normalization divides it out. Included here to make connection to description in report more apparent
-                    # adding value at d=self.N manually requires slicing as cf.shape = (self.N,)
-                    ww_cor[:-1] += 4/self.N**2 * cf
-                    ww_cor_err[:-1] += 4/self.N**2 * cf_err
+        ww_cor, ww_cor_err = np.zeros(self.N+1),np.zeros(self.N+1)
+        ww_cor_err2 = np.zeros(self.N+1)
 
+        t1 = time.time()
+        Phi = np.sum(self.configs, axis=1) # (M,N,4)
+        for k in range(4):
+            # passes (N,M) arrays: correlations along axis 0 while axis 1 hosts results from repeating the measurement for different configurations
+            cf, cf_err = correlations.correlator_repeats(Phi[:,:,k].T, Phi[:,:,k].T)
+            ww_cor[:-1] += cf
+            ww_cor_err2[:-1] += cf_err**2 # errors coming from each component of the parameter vector add in quadrature
+        ww_cor *= 4/self.N**2
+        ww_cor_err = 4/self.N**2 * np.sqrt(ww_cor_err2)
         ww_cor[-1], ww_cor_err[-1] = ww_cor[0], ww_cor_err[0]
         # normalize
         ww_cor, ww_cor_err = ww_cor/ww_cor[0], ww_cor_err/ww_cor[0]
@@ -560,54 +559,44 @@ class SU2xSU2():
 
         if save_data:
             meta_str = 'N=%d, a=%.3f, beta=%.3f, number of configurations=%d'%(self.N, self.a, self.beta, self.M)
-            np.savetxt('data/wallwall_cor.txt', np.vstack((ds, ww_cor, ww_cor_err)), header=meta_str+'\nRows: separation in units of lattice spacing, correlation function and its error')
+            np.savetxt('data/%s'%file_name, np.vstack((ds, ww_cor, ww_cor_err)), header=meta_str+'\nRows: separation in units of lattice spacing, correlation function and its error')
 
 
-        def fit_func(x, a, b, c):
-            return np.cosh((x-b)/a) - c
+        # fit two independent exponentials at either end of the separation range ds 
+        def fit_left(x,a):
+            return np.exp(-x/a)
 
-        popt, pcov = curve_fit(fit_func, ds, ww_cor, p0=[1,self.N/2,1], sigma=ww_cor_err, absolute_sigma=True) # uses chi2 minimization
-        cor_length = popt[0] # in units of lattice spacing
-        cor_length_err = np.sqrt(pcov[0][0]) # in units of lattice spacing
+        def fit_right(x,a):
+            return np.exp((x-self.N)/a)
+
+        N_2 = int(self.N/2) 
+        fit_cut = 0.1 # 1/np.e # defines value below which it is assumed that the correlation function is noise dominated
+        mask_l, mask_r = np.logical_and(ds<=N_2, ww_cor > fit_cut), np.logical_and(ds>=N_2, ww_cor > fit_cut)
+        ds_left, ds_right = ds[mask_l], ds[mask_r]
+
+        popt_l, pcov_l = curve_fit(fit_left, ds_left, ww_cor[mask_l], sigma=ww_cor_err[mask_l], absolute_sigma=True)
+        popt_r, pcov_r = curve_fit(fit_right, ds_right, ww_cor[mask_r], sigma=ww_cor_err[mask_r], absolute_sigma=True)
+        cor_length = 1/2 * (popt_l[0] + popt_r[0]) # in units of lattice spacing
+        cor_length_err = np.sqrt(1/2 * (pcov_l[0][0] + pcov_r[0][0])) # avg err = sqrt (avg variance)
+
 
         if make_plot:
             fig = plt.figure(figsize=(8,6))
 
             plt.errorbar(ds, ww_cor, yerr=ww_cor_err, fmt='.', capsize=2)
-            plt.plot(ds, fit_func(ds,*popt), label='$\\xi = %.3f \pm %.3f$'%(cor_length, cor_length_err))
+            ds_l = np.linspace(ds_left[0], ds_left[-1], 500)
+            ds_r = np.linspace(ds_right[0], ds_right[-1], 500)
+            plt.plot(ds_l, fit_left(ds_l,*popt_l), c='g', label='$\\xi = %.3f \pm %.3f$'%(cor_length, cor_length_err))
+            plt.plot(ds_r, fit_right(ds_r,*popt_r), c='g')
+            # plt.yscale('log')
             plt.xlabel(r'lattice separation [$a$]')
             plt.ylabel('wall-wall correlation')
-            plt.legend(prop={'size':12})
+            plt.legend(prop={'size':12}, loc='upper center') # location to not conflict with error bars
             fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
             plt.show()
             # fig.savefig('plots/wallwall_correlation.pdf')
 
         return cor_length, cor_length_err
-
-
-    def susceptibility_naive(self, phi):
-        '''
-        Computes the susceptibility for lattice configuration phi.
-        Equivalent to self.susceptibility but slower when self.N > 40. Hence only advised to use for small lattices.
-        phi: (N,N,4) array
-            parameter values of SU(2) matrices at each lattice site
-
-        Returns
-        chi: float
-            the susceptibility
-        '''
-        # find product of phi with phi at every other lattice position y
-        # phi_y is obtained by shifting the lattice by one position each loop
-        G = np.zeros((self.N,self.N))
-        for i in range(self.N):
-            for j in range(self.N):
-                phi_y = np.roll(phi, shift=(i,j), axis=(0,1))
-                A = SU2.dot(phi, SU2.hc(phi_y))
-                G += SU2.tr(A + SU2.hc(A))
-
-        chi = np.sum(G) / (2*self.N**2)
-
-        return chi
 
 
     def susceptibility(self, phi):
@@ -620,14 +609,11 @@ class SU2xSU2():
             susceptibility of the passed configuration phi
         '''
         ww_cor = np.zeros(self.N)
-        ww_cor_err = np.zeros(self.N)
-        for p in range(self.N):
-            for q in range(self.N):
-                # effect of transpose added manually: spatial components reversed sign such that correlation from all components add
-                for k in range(4):
-                    cf, _ = correlations.correlator(phi[p,:,k], phi[q,:,k])
-                    ww_cor += 2/self.N**2 * cf
-
+        Phi = np.sum(phi, axis=0) # (N,4)
+        for k in range(4):
+            cf, _ = correlations.correlator(Phi[:,k], Phi[:,k])
+            ww_cor += cf
+        ww_cor *= 2/self.N**2
         chi = np.sum(ww_cor)
 
         return chi
@@ -635,20 +621,21 @@ class SU2xSU2():
 
     def susceptibility_IAT(self):
         '''Computes the IAT and the associated error for the susceptibilities of the chain.
+        Also finds the average susceptibility and the IAT corrected SEM. 
 
         Returns:
-        IAT: float
-            integrated autocorrelation time for susceptibility
-        IAT_err float
-            error of IAT 
+        IAT, IAT_err: float, float
+            integrated autocorrelation time for susceptibility and its error
+        chi, chi_err: float, float
+            average susceptibility and its error
         '''
         chis = np.empty(self.M)
         for i,phi in enumerate(self.configs):
-            chis[i], _ = self.susceptibility(phi)
+            chis[i] = self.susceptibility(phi)
 
-        # chi_avg, _, chi_err, _ = jackknife_stats(chis, np.mean, 0.95)
-        # chi_avg = np.mean(chis)
-        # chi_err = np.sqrt(IAT/self.M) * np.std(chis)
         ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlations.autocorrelator(chis)
+        # chi_avg, _, chi_err, _ = jackknife_stats(chis, np.mean, 0.95)
+        chi_avg = np.mean(chis)
+        chi_err = np.sqrt(IAT/self.M) * np.std(chis)
 
-        return IAT, IAT_err
+        return IAT, IAT_err, chi_avg, chi_err

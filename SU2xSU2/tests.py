@@ -18,6 +18,7 @@ mpl.rcParams['axes.prop_cycle'] = cycler(color=['k', 'g', 'b', 'r'])
 import SU2_mat_routines as SU2
 from SU2xSU2 import SU2xSU2
 from calibrate_paras import calibrate
+import correlations
 
 
 ##### Check if my matrix routine gives same result as np #####
@@ -488,35 +489,17 @@ def get_ww_naive():
 
 
 ##### naive and FFT based computation of susceptibility #####
-def compute_chi():
-    '''Compares naive double sum and cross correlation theorem approach to computing the susceptibility.
-    '''
-    model = SU2xSU2(N=64, a=1, ell=7, eps=1/7, beta=1)
-
-    # test extreme case in which chi=2*N^2
-    config = np.zeros((model.N,model.N,4))
-    config[:,:,0] = 1
-    # choose a random configuration from the chain
-    # model.run_HMC(2000, 20, 0.1, accel=False, store_data=False) 
-    # config = model.configs[-10]
-    
-    t1 = time.time()
-    chi_cross_cor  = model.susceptibility(config)
-    t2 = time.time()
-    print('cross_cor result: %.3f'%chi_cross_cor)
-    print('cross_cor time: %s'%(str(timedelta(seconds=t2-t1))))
-
-
-    def susceptibility_naive(N, phi):
+def susceptibility_naive(phi):
         '''
-        Computes the susceptibility for lattice configuration phi
+        Computes the susceptibility for lattice configuration phi.
         phi: (N,N,4) array
             parameter values of SU(2) matrices at each lattice site
 
         Returns
-        Chi: float
+        chi: float
             the susceptibility
         '''
+        N = phi.shape[0]
         # find product of phi with phi at every other lattice position y
         # phi_y is obtained by shifting the lattice by one position each loop
         G = np.zeros((N,N))
@@ -526,15 +509,57 @@ def compute_chi():
                 A = SU2.dot(phi, SU2.hc(phi_y))
                 G += SU2.tr(A + SU2.hc(A))
 
-        Chi = np.sum(G) / (2*N**2)
+        chi = np.sum(G) / (2*N**2)
 
-        return Chi
+        return chi
 
+def susceptibility_fast(phi):
+    '''
+    Computes the susceptibility i.e. the average point to point correlation for configuration phi.
+    As described in the report, this closely related to summing the wall to wall correlation function which can be computed efficiently via the cross correlation theorem.
+
+    Returns:
+    chi: float
+        susceptibility of the passed configuration phi
+    '''
+    N = phi.shape[0]
+    ww_cor = np.zeros(N)
+    Phi = np.sum(phi, axis=0) # (N,4)
+    for k in range(4):
+        cf, _ = correlations.correlator(Phi[:,k], Phi[:,k])
+        ww_cor += cf
+    ww_cor *= 2/N**2
+    chi = np.sum(ww_cor)
+
+    return chi
+
+
+def compute_chi():
+    '''Compares naive double sum and cross correlation theorem approach to computing the susceptibility.
+    '''
+    N = 64
+
+    # test extreme case in which chi=2*N^2
+    # config = np.zeros((model.N,model.N,4))
+    # config[:,:,0] = 1
+    # random lattice configuration
+    a = np.random.standard_normal((N,N,4))
+    config = SU2.renorm(a)
+    # choose a configuration manually from the chain
+    # model = SU2xSU2(N=N, a=1, ell=10, eps=1/10, beta=1)
+    # model.run_HMC(20, 1, 0, accel=False, store_data=False) 
+    # config = model.configs[-10]
+    
+    t1 = time.time()
+    chi_cross_cor  = susceptibility_fast(config)
+    t2 = time.time()
+    print('cross_cor result: ',chi_cross_cor)
+    print('cross_cor time: %s'%(str(timedelta(seconds=t2-t1))))
 
     t1 = time.time()
-    chi_naive  = susceptibility_naive(model.N, config)
+    chi_naive  = susceptibility_naive(config)
     t2 = time.time()
-    print('naive result: %.3f'%chi_naive)
+    print('naive result: ',chi_naive)
     print('naive time: %s'%(str(timedelta(seconds=t2-t1))))
 
 # compute_chi()
@@ -551,16 +576,14 @@ def chi_speed_compare():
     for i,N in enumerate(Ns):
         a = np.random.standard_normal((N,N,4))
         phi = SU2.renorm(a)
-        # all parameters except N are arbitary
-        model = SU2xSU2(N=N, a=1, ell=7, eps=1/7, beta=1)
-
-        t1 = time.time()
-        chi_cross_cor  = model.susceptibility(phi)
-        t2 = time.time()
+    
+        t1 = time.time_ns() # nessessary to capture run time at small N
+        chi_cross_cor  = susceptibility_fast(phi)
+        t2 = time.time_ns()
         ts_crosscor[i] = t2-t1
 
         t1 = time.time()
-        chi_cross_cor  = model.susceptibility_naive(phi)
+        chi_cross_cor  = susceptibility_naive(phi)
         t2 = time.time()
         ts_naive[i] = t2-t1
         print('Completed N = ',N)
