@@ -403,21 +403,11 @@ def residual_coupling():
 # residual_coupling()
 
 
-##### Naive computation of wall wall correlations #####
-def get_ww_naive():
-    '''Naive approach to compute the correlation length.
-    This function was mainly used to validate the result of the faster/FFT based approach.
+##### naive and FFT based computation of wall wall correlations #####
+def ww_naive(model):
     '''
-    model = SU2xSU2(N=16, a=1, ell=7, eps=1/7, beta=1)
-    model.run_HMC(M=100, thin_freq=1, burnin_frac=0.1, store_data=False)
-    # model_paras = {'N':16, 'a':1, 'ell':7, 'eps':1/7, 'beta':1}
-    # paras_calibrated = calibrate(model_paras)
-    # print('calibration completed!')
-    # sim_paras = {'M':5000, 'thin_freq':40, 'burnin_frac':0.1, 'store_data':False}
-    # model, paras = calibrate(paras_calibrated, sim_paras, production_run=True)
-    # print('Parameters used during production run: ',paras)
-
-
+    Naive approach to compute the correlation function.
+    '''
     def ww_correlation(i, j, m, model):
         '''correlates ith and jth column of lattice, defined as the average point to point correlation for all points contained in the walls'''
         pp_corrs = np.empty(model.N**2)
@@ -434,7 +424,7 @@ def get_ww_naive():
         return np.mean(pp_corrs)
 
 
-    L = 8 # largest considered separation 
+    L = model.N # largest considered separation 
     ww_cor = np.empty(L+1) # wall wall correlation for different separations
     ww_cor_err = np.empty(L+1)
     ds = np.arange(L+1)
@@ -458,35 +448,70 @@ def get_ww_naive():
     # normalize
     ww_cor, ww_cor_err = ww_cor/ww_cor[0], ww_cor_err/ww_cor[0]
     t2 = time.time()
-    print('Total time: %s'%(str(timedelta(seconds=t2-t1))))
 
-    meta_str = 'N=%d, a=%.3f, beta=%.3f, number of configurations=%d'%(model.N, model.a, model.beta, model.M)
-    #np.savetxt('data/wallwall_cor_naive.txt', np.vstack((ds, ww_cor, ww_cor_err)), header=meta_str+'\nRows: separation in units of lattice spacing, correlation function and its error')
+    return ww_cor, ww_cor_err, t2-t1
+
+def ww_fast(model):
+    ''' 
+    Computes the wall to wall correlation as described in the report via the cross correlation theorem.
+    '''
+    # for nicer plotting and fitting include value for separation d=self.N manually as being equivalent to d=0 (using periodic boundary conditions)
+    ds = np.arange(model.N+1)
+    ww_cor, ww_cor_err = np.zeros(model.N+1),np.zeros(model.N+1)
+    ww_cor_err2 = np.zeros(model.N+1)
+
+    t1 = time.time()
+    Phi = np.sum(model.configs, axis=1) # (M,N,4)
+    for k in range(4):
+        # passes (N,M) arrays: correlations along axis 0 while axis 1 hosts results from repeating the measurement for different configurations
+        cf, cf_err = correlations.correlator_repeats(Phi[:,:,k].T, Phi[:,:,k].T)
+        ww_cor[:-1] += cf
+        ww_cor_err2[:-1] += cf_err**2 # errors coming from each component of the parameter vector add in quadrature
+    ww_cor *= 4/model.N**2
+    ww_cor_err = 4/model.N**2 * np.sqrt(ww_cor_err2)
+    ww_cor[-1], ww_cor_err[-1] = ww_cor[0], ww_cor_err[0]
+    # normalize
+    ww_cor, ww_cor_err = ww_cor/ww_cor[0], ww_cor_err/ww_cor[0]
+    t2 = time.time()
+
+    return ww_cor, ww_cor_err, t2-t1
 
 
-    def lin_func(x, m, b):
-        return m*x+b
+def compare_ww():
+    '''Compares correlation function and its error from the naive and cross correlation theorem based approach.
+    '''
+    paras = np.loadtxt('data/single_run/model_paras.txt')
+    sim_paras = np.loadtxt('data/single_run/sim_paras.txt')
+    print('Loading simulation:\nN, a, ell, eps, beta\n',paras,'\nM, thin freq, burn in, accept rate\n',sim_paras)
+    model = SU2xSU2(*paras)
+    model.load_data()
 
-    cut = 6 # np.floor(self.N/2)-2 # periodic bcs yield symmetric correlation function. To not contaminate the fit, restrict to range below half the size of the lattice 
-    popt, pcov = curve_fit(lin_func, ds[:cut], np.log(ww_cor[:cut]), sigma=np.log(ww_cor_err[:cut]), absolute_sigma=True) # uses chi2 minimization
-    cor_length = -1/popt[0] # in units of lattice spacing
-    cor_length_err = np.sqrt(pcov[0][0]) # in units of lattice spacing
+    ds = np.arange(model.N+1)
+    cor_func_naive, cor_func_err_naive, _ = ww_naive(model)
+    cor_func_fast, cor_func_err_fast, _ = ww_fast(model) 
 
+    # difference in function values
     fig = plt.figure(figsize=(8,6))
 
-    plt.errorbar(ds, ww_cor, yerr=ww_cor_err, fmt='.', capsize=2)
-    plt.plot(ds[:cut], np.exp(lin_func(ds[:cut],*popt)), label='$\\xi = %.3f \pm %.3f$'%(cor_length, cor_length_err))
+    plt.plot(ds, 1 - cor_func_fast/cor_func_naive)
     plt.xlabel(r'lattice separation [$a$]')
-    plt.ylabel('wall-wall correlation')
+    plt.ylabel(r'$1-C_{cross} / C_{sum}$')
+    fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
+    plt.show()
+
+    # difference in errors
+    fig = plt.figure(figsize=(8,6))
+
+    plt.plot(ds, cor_func_err_naive, c='k', label='double sum')
+    plt.plot(ds, cor_func_err_fast, c='g', label='cross correlation')
+    plt.xlabel(r'lattice separation [$a$]')
+    plt.ylabel('wall-wall correlation error')
     plt.legend(prop={'size':12})
     fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
     plt.show()
 
-    # fig.savefig('plots/wallwall_correlation_naive.pdf')
-    return
+# compare_ww()
     
-# ds, ww_cor, ww_cor_err = get_ww_naive()
-
 
 ##### naive and FFT based computation of susceptibility #####
 def susceptibility_naive(phi):
