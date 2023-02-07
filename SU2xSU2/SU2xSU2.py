@@ -525,11 +525,12 @@ class SU2xSU2():
         return e_avg, e_err, IAT, IAT_err
       
 
-    def ww_correlation(self, save_data=False, file_name='wallwall_cor.txt', make_plot=False):
+    def ww_correlation(self, save_data=False, data_path='wallwall_cor.txt', make_plot=False, show_plot=True, plot_path='wallwall_cor.pdf'):
         ''' 
         Computes the wall to wall correlation as described in the report via the cross correlation theorem.
-        The data can be optionally saved and the correlation function with the fitted cosh (due to periodic lattice boundary conditions) plotted.
-        Note that the filename must have end in .txt and can only be a path relative to the data directory if the required folders exist.
+        The data can be optionally saved and the correlation function with fitted exponential decays is plotted.
+        If show_plot=True the produced plot will just be shown but not saved. If show_plot=False (and make_plot=True) the plot will be saved and not shown.
+        Note that data_path is relative to the data directory and must end in .txt. Similarly, plot_path is relative to the plots directory (.pdf recommended).
         
         Returns
         cor_length: float
@@ -559,7 +560,7 @@ class SU2xSU2():
 
         if save_data:
             meta_str = 'N=%d, a=%.3f, beta=%.3f, number of configurations=%d'%(self.N, self.a, self.beta, self.M)
-            np.savetxt('data/%s'%file_name, np.vstack((ds, ww_cor, ww_cor_err)), header=meta_str+'\nRows: separation in units of lattice spacing, correlation function and its error')
+            np.savetxt('data/%s'%data_path, np.vstack((ds, ww_cor, ww_cor_err)), header=meta_str+'\nRows: separation in units of lattice spacing, correlation function and its error')
 
 
         # fit two independent exponentials at either end of the separation range ds 
@@ -570,7 +571,7 @@ class SU2xSU2():
             return np.exp((x-self.N)/a)
 
         N_2 = int(self.N/2) 
-        fit_cut = 0.1 # 1/np.e # defines value below which it is assumed that the correlation function is noise dominated
+        fit_cut = 0.05 # 1/np.e # defines value below which it is assumed that the correlation function is noise dominated
         mask_l, mask_r = np.logical_and(ds<=N_2, ww_cor > fit_cut), np.logical_and(ds>=N_2, ww_cor > fit_cut)
         ds_left, ds_right = ds[mask_l], ds[mask_r]
 
@@ -588,13 +589,15 @@ class SU2xSU2():
             ds_r = np.linspace(ds_right[0], ds_right[-1], 500)
             plt.plot(ds_l, fit_left(ds_l,*popt_l), c='g', label='$\\xi = %.3f \pm %.3f$'%(cor_length, cor_length_err))
             plt.plot(ds_r, fit_right(ds_r,*popt_r), c='g')
-            # plt.yscale('log')
+            plt.yscale('log')
             plt.xlabel(r'lattice separation [$a$]')
             plt.ylabel('wall-wall correlation')
             plt.legend(prop={'size':12}, loc='upper center') # location to not conflict with error bars
             fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
-            plt.show()
-            # fig.savefig('plots/wallwall_correlation.pdf')
+            if show_plot:
+                plt.show()
+            else:
+                fig.savefig('plots/%s'%plot_path)
 
         return cor_length, cor_length_err
 
