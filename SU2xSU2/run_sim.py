@@ -3,14 +3,14 @@ from SU2xSU2 import SU2xSU2
 from calibrate_paras import calibrate
 
 # manual parameters
-model = SU2xSU2(N=16, a=1, ell=4, eps=1/4, beta=4)
-model.run_HMC(2000, 1, 0.1, accel=True, store_data=False)  
+# model = SU2xSU2(N=16, a=1, ell=4, eps=1/4, beta=1)
+# model.run_HMC(2000, 1, 0.1, accel=True, store_data=False)  
 
 # automatic calibration
-# model_paras = {'N':16, 'a':1, 'ell':4, 'eps':1/4, 'beta':0.25}
+# model_paras = {'N':64, 'a':1, 'ell':3, 'eps':1/3, 'beta':1}
 # paras_calibrated = calibrate(model_paras, accel=True)
 # print('calibration completed!')
-# sim_paras = {'M':2000, 'thin_freq':10, 'burnin_frac':0.1, 'accel':True, 'store_data':False}
+# sim_paras = {'M':3000, 'thin_freq':20, 'burnin_frac':0.1, 'accel':True, 'store_data':False}
 # model, paras = calibrate(paras_calibrated, sim_paras, production_run=True)
 # print('Parameters used during production run: ',paras)
 

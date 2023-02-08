@@ -387,8 +387,10 @@ class SU2xSU2():
         print('Acceptance rate: %.2f%%'%(self.acc_rate*100))
         
         # make final chain of configurations
-        # remove starting configuration
-        configs = np.delete(configs, 0, axis=0) 
+        # remove starting configuration. 
+        # Using np.delete(configs, 0, axis=0) creates a new array and is thus memory intensive, giving memory error for large configs array. 
+        # Slicing just produces a view of the original array
+        configs = configs[1:] 
         # Reject burn in and thin remaining chain
         start = start_id+thin_freq-1
         mask = np.s_[start::thin_freq]
@@ -428,7 +430,7 @@ class SU2xSU2():
             plt.scatter(self.sweeps, np.exp(-self.delta_Hs), s=2) 
             plt.hlines(exp__dH_avg, self.sweeps[0], self.sweeps[-1], linestyles='-', color='r', label=r'$\langle e^{-\Delta H} \rangle = %.3f \pm %.3f$'%(exp__dH_avg, exp__dH_err))
             plt.xlabel('HMC sweep')
-            plt.ylabel('$\exp^{-\Delta H}$')
+            plt.ylabel('$e^{-\Delta H}$')
             plt.legend(prop={'size': 12})
             plt.show()
             # fig.savefig('plots/deltaH_vs_sweeps.pdf')
