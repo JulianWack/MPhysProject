@@ -539,6 +539,8 @@ class SU2xSU2():
             fitted correlation length in units of the lattice spacing
         cor_length_err: float
             error in the fitted correlation length
+        reduced_chi2: float
+            chi-square per degree of freedom as a goodness of fit proxy
         '''
         # for nicer plotting and fitting include value for separation d=self.N manually as being equivalent to d=0 (using periodic boundary conditions)
         ds = np.arange(self.N+1)
@@ -565,34 +567,35 @@ class SU2xSU2():
             np.savetxt('data/%s'%data_path, np.vstack((ds, ww_cor, ww_cor_err)), header=meta_str+'\nRows: separation in units of lattice spacing, correlation function and its error')
 
 
-        # fit two independent exponentials at either end of the separation range ds 
-        def fit_left(x,a):
+        def fit(x,a):
             return np.exp(-x/a)
 
-        def fit_right(x,a):
-            return np.exp((x-self.N)/a)
-
         N_2 = int(self.N/2) 
-        fit_cut = 0.05 # 1/np.e # defines value below which it is assumed that the correlation function is noise dominated
-        mask_l, mask_r = np.logical_and(ds<=N_2, ww_cor > fit_cut), np.logical_and(ds>=N_2, ww_cor > fit_cut)
-        ds_left, ds_right = ds[mask_l], ds[mask_r]
+        ds_2 = ds[:N_2+1]
+        # exploit symmetry about N/2 to reduce errors (effectively increasing number of data points by factor of 2)
+        ww_cor_mirrored = 1/2 * (ww_cor[:N_2+1] + ww_cor[N_2:][::-1])
+        ww_cor_err_mirrored = np.sqrt(ww_cor_err[:N_2+1]**2 + ww_cor_err[N_2::-1]**2)
 
-        popt_l, pcov_l = curve_fit(fit_left, ds_left, ww_cor[mask_l], sigma=ww_cor_err[mask_l], absolute_sigma=True)
-        popt_r, pcov_r = curve_fit(fit_right, ds_right, ww_cor[mask_r], sigma=ww_cor_err[mask_r], absolute_sigma=True)
-        cor_length = 1/2 * (popt_l[0] + popt_r[0]) # in units of lattice spacing
-        cor_length_err = np.sqrt(1/2 * (pcov_l[0][0] + pcov_r[0][0])) # avg err = sqrt (avg variance)
+        # defining fitting range 
+        mask = ww_cor_mirrored>0.05
+        # or based on effective mass plots which requires passing the cut off value
+        # mask = ds_2<cut
 
+        popt, pcov = curve_fit(fit, ds_2[mask], ww_cor_mirrored[mask], sigma=ww_cor_err_mirrored[mask], absolute_sigma=True)
+        cor_length = popt[0] # in units of lattice spacing
+        cor_length_err = np.sqrt(pcov[0][0])
+
+        r = ww_cor_mirrored[mask] - fit(ds_2[mask], *popt)
+        reduced_chi2 = np.sum((r/ww_cor_err_mirrored[mask])**2) / (mask.size - 1) # dof = number of observations - number of fitted parameters
 
         if make_plot:
             fig = plt.figure(figsize=(8,6))
 
-            plt.errorbar(ds, ww_cor, yerr=ww_cor_err, fmt='.', capsize=2)
-            ds_l = np.linspace(ds_left[0], ds_left[-1], 500)
-            ds_r = np.linspace(ds_right[0], ds_right[-1], 500)
-            plt.plot(ds_l, fit_left(ds_l,*popt_l), c='g', label='$\\xi = %.3f \pm %.3f$'%(cor_length, cor_length_err))
-            plt.plot(ds_r, fit_right(ds_r,*popt_r), c='g')
+            plt.errorbar(ds_2, ww_cor_mirrored, yerr=ww_cor_err_mirrored, fmt='.', capsize=2)
+            ds_fit = np.linspace(0, ds_2[mask][-1], 500)
+            plt.plot(ds_fit, fit(ds_fit,*popt), c='g', label='$\\xi = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(cor_length, cor_length_err, reduced_chi2))
             plt.yscale('log')
-            plt.xlabel(r'lattice separation [$a$]')
+            plt.xlabel(r'wall separation [$a$]')
             plt.ylabel('wall-wall correlation')
             plt.legend(prop={'size':12}, loc='upper center') # location to not conflict with error bars
             fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
@@ -600,8 +603,9 @@ class SU2xSU2():
                 plt.show()
             else:
                 fig.savefig('plots/%s'%plot_path)
+                plt.close() # for memory purposes
 
-        return cor_length, cor_length_err
+        return cor_length, cor_length_err, reduced_chi2
 
 
     def susceptibility(self, phi):

@@ -20,9 +20,10 @@ def mass_lambda():
     '''
     Ns = [32, 32, 40, 40, 64, 64, 64, 96, 128, 160, 192, 224, 300]
     a = 1 
-    betas = np.linspace(0.6, 1.4, 13) # [0.6, 0.6667, 0.7334, 0.8, 0.8667, 0.9334, 1.0, 1.0667, 1.1334, 1.2, 1.2667, 1.3334, 1.4]
+    betas = np.linspace(0.6, 1.4, 13) # np.array([0.6, 0.6667, 0.7334, 0.8, 0.8667, 0.9334, 1.0, 1.0667, 1.1334, 1.2, 1.2667, 1.3334, 1.4])
     xi = np.zeros(betas.shape[0])
     xi_err = np.zeros(betas.shape[0])
+    reduced_chi2 = np.zeros(betas.shape[0])
     for i,beta in enumerate(betas):
         model_paras = {'N':Ns[i], 'a':a, 'ell':7, 'eps':1/7, 'beta':beta}
         paras_calibrated = calibrate(model_paras, accel=True)
@@ -30,12 +31,12 @@ def mass_lambda():
         model, model_paras = calibrate(paras_calibrated, sim_paras, production_run=True)
         beta_str = str(np.round(beta, 4)).replace('.', '_')
         file_path = 'corfunc_beta/beta_%s.txt'%beta_str
-        xi[i], xi_err[i] = model.ww_correlation(save_data=True, data_path=file_path, make_plot=True, show_plot=False, plot_path='corfunc_beta/beta_%s.pdf'%beta_str)
+        xi[i], xi_err[i], reduced_chi2[i] = model.ww_correlation(save_data=True, data_path=file_path, make_plot=True, show_plot=False, plot_path='corfunc_beta/beta_%s.pdf'%beta_str)
 
-        np.savetxt('data/corfunc_beta/cor_len_vs_beta.txt', np.row_stack((betas, xi, xi_err)), header='betas, xi, xi_err')
+        np.savetxt('data/corfunc_beta/cor_len_vs_beta.txt', np.row_stack((betas, xi, xi_err, reduced_chi2)), header='betas, xi, xi_err, chi-square per degree of freedom')
 
     data = np.loadtxt('data/corfunc_beta/cor_len_vs_beta.txt')
-    betas, xi, xi_err = data
+    betas, xi, xi_err, _ = data
 
     mass_lambda = 1/xi * np.exp(2*np.pi*betas) / np.sqrt(2*np.pi*betas)
     mass_lambda_err = mass_lambda / xi * xi_err
