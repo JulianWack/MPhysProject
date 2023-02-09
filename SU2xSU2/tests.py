@@ -627,3 +627,45 @@ def chi_speed_compare():
     np.savetxt('data/chi_speed.txt', data, header='lattice size N, CPU time via cross correlation thm, CPU time via double sum')
 
 # chi_speed_compare()
+
+
+##### effective mass #####
+
+def effective_mass(N, beta_str):
+    '''
+    Alternative way to determine the correlation length when assuming the correlation function is a pure exponential decay.
+    Mainly used as a guide to determine the fitting range.
+
+    Loads in correlation function results for one value pair of N and beta.
+    '''
+    ds, ww_cor, ww_cor_err = np.loadtxt('data/corfunc_beta/beta_%s.txt'%beta_str)
+
+    N_2 = int(N/2)
+    ds_2 = ds[:N_2+1]
+    # exploit symmetry about N/2 to reduce errors (effectively increasing number of data points by factor of 2)
+    ww_cor_mirrored = 1/2 * (ww_cor[:N_2+1] + ww_cor[N_2:][::-1])
+    ww_cor_err_mirrored = np.sqrt(ww_cor_err[:N_2+1]**2 + ww_cor_err[N_2::-1]**2)
+
+    ww_cor_mirrored_1 = np.roll(ww_cor_mirrored, -1) # shift to d+1
+    m_eff = - np.log( ww_cor_mirrored_1 / ww_cor_mirrored)
+    m_eff_err = np.roll(ww_cor_err_mirrored, -1)/ww_cor_mirrored_1 - ww_cor_err_mirrored/ww_cor_mirrored 
+    # m_eff_err = np.sqrt( (np.roll(ww_cor_err_mirrored, -1)/ww_cor_mirrored_1)**2 - (ww_cor_err_mirrored/ww_cor_mirrored)**2 )
+
+
+    fig = plt.figure(figsize=(8,6))
+
+    cut = 70 # adjust manually
+    plt.errorbar(ds_2[:cut], m_eff[:cut], yerr=m_eff_err[:cut], fmt='.', capsize=2)
+    plt.xlabel(r'wall separation [$a$]')
+    plt.ylabel('effective mass')
+    fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
+    plt.show()
+    # fig.savefig('plots/corfunc_beta/effective_mass/%s.pdf'%beta_str)
+
+    return
+    
+# Ns = [32, 32, 40, 40, 64, 64, 64, 96, 128, 160, 192, 224, 300]
+# betas = [0.6, 0.6667, 0.7333, 0.8, 0.8667, 0.9333, 1.0, 1.0667, 1.1333, 1.2, 1.2667, 1.3333, 1.4]
+effective_mass(300, '1_4')
+# manually found upper bunds (exclusive) on fit range for the above N, beta value pairs
+cuts = [6, 6, 9, 10, 14, 15, 20, 32, 45, 45, 35, 81, 32]
