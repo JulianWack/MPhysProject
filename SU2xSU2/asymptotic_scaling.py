@@ -18,9 +18,9 @@ def mass_lambda():
     The produced graph also shows the prediction from the continuum theory, allowing to deduce the value of beta 
     above which the continuum is well approximated by a finite sized lattice.  
     '''
-    Ns = [32, 32, 40, 40, 64, 64, 64, 96, 128, 160, 192, 224, 300]
+    Ns = [32, 32, 40, 40, 64, 64, 64, 64, 96, 96, 128, 160, 192, 224, 512]
     a = 1 
-    betas = np.linspace(0.6, 1.4, 13) # np.array([0.6, 0.6667, 0.7334, 0.8, 0.8667, 0.9334, 1.0, 1.0667, 1.1334, 1.2, 1.2667, 1.3334, 1.4])
+    betas = np.array([0.6, 0.6667, 0.7333, 0.8, 0.8667, 0.9333, 0.9667, 1.0, 1.0333, 1.0667, 1.1333, 1.2, 1.2667, 1.3333, 1.4]) # np.linspace(0.6, 1.4, 13)
     xi = np.zeros(betas.shape[0])
     xi_err = np.zeros(betas.shape[0])
     reduced_chi2 = np.zeros(betas.shape[0])

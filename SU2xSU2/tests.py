@@ -654,7 +654,7 @@ def effective_mass(N, beta_str):
 
     fig = plt.figure(figsize=(8,6))
 
-    cut = 70 # adjust manually
+    cut = 100 # adjust manually
     plt.errorbar(ds_2[:cut], m_eff[:cut], yerr=m_eff_err[:cut], fmt='.', capsize=2)
     plt.xlabel(r'wall separation [$a$]')
     plt.ylabel('effective mass')
@@ -663,9 +663,9 @@ def effective_mass(N, beta_str):
     # fig.savefig('plots/corfunc_beta/effective_mass/%s.pdf'%beta_str)
 
     return
-    
-# Ns = [32, 32, 40, 40, 64, 64, 64, 96, 128, 160, 192, 224, 300]
-# betas = [0.6, 0.6667, 0.7333, 0.8, 0.8667, 0.9333, 1.0, 1.0667, 1.1333, 1.2, 1.2667, 1.3333, 1.4]
-effective_mass(300, '1_4')
+
+# Ns = [32, 32, 40, 40, 64, 64, 64, 64, 96, 96, 128, 160, 192, 224, 512]
+# betas = [0.6, 0.6667, 0.7333, 0.8, 0.8667, 0.9333, 0,9667, 1.0, 1.0333, 1.0667, 1.1333, 1.2, 1.2667, 1.3333, 1.4]
+effective_mass(512, '1_4')
 # manually found upper bunds (exclusive) on fit range for the above N, beta value pairs
-cuts = [6, 6, 9, 10, 14, 15, 20, 32, 45, 45, 35, 81, 32]
+cuts = [6, 6, 9, 10, 14, 15, 10, 20, 31, 32, 45, 45, 35, 81, 91]
