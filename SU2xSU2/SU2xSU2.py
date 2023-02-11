@@ -21,10 +21,10 @@ mpl.rcParams['axes.prop_cycle'] = cycler(color=['k', 'g', 'b', 'r'])
 
 class SU2xSU2():
 
-    def __init__(self, N, a, ell, eps, beta): 
+    def __init__(self, N, a, ell, eps, beta, mass=0.1): 
         '''
         N: int
-            Number of lattice sites along one dimension 
+            Number of lattice sites along one dimension. Must be even for implementation of Fourier acceleration to work properly 
         a: float
             Lattice spacing
         ell: int
@@ -32,7 +32,9 @@ class SU2xSU2():
         eps: float
             Step size for integrating Hamilton's equations
         beta: float
-            parameter to control temperature: beta = 1/k_b T
+            nearest neighbor coupling parameter
+        mass: float
+            mass parameter used in Fourier acceleration. Given default value was fund to yield most effective acceleration
         '''
 
         # lattice parameters
@@ -41,6 +43,8 @@ class SU2xSU2():
         self.ell, self.eps = int(ell), eps
         # model parameters
         self.beta = beta
+        # acceleration parameters
+        self.mass = mass
 
         # find mask to index phi giving the parameters of the right, left, top, and bottom nearest neighbor
         self.NN_mask = self.make_NN_mask() 
@@ -159,14 +163,13 @@ class SU2xSU2():
         A: (N,N) array
             inverse kernel in Fourier space
         '''
-        # x = 0.9 # parameter interpolating between accelerated (x=1) and unaccelerated (x=0) case. Appropriate kernel term given below
-        M = 1
+        # x = 0.9 # parameter interpolating between accelerated (x=1) and unaccelerated (x=0) case. 
+        # Appropriate kernel: A[k,k_] = (1 - x/2 - x/4*(np.cos(np.pi*ks[k]/self.N) + np.cos(np.pi*ks[k_]/self.N)) )**(-1)
         ks = np.arange(0, self.N) # lattice sites in Fourier space along one direction
         A = np.zeros((self.N,self.N)) # inverse kernel computed at every site in Fourier space
         for k in range(self.N):
             for k_ in range(k,self.N):
-                A[k,k_] = ( 4*np.sin(np.pi*ks[k]/self.N)**2 + 4*np.sin(np.pi*ks[k_]/self.N)**2 + M**2)**(-1)   
-                # A[k,k_] = (1 - x/2 - x/4*(np.cos(np.pi*ks[k]/self.N) + np.cos(np.pi*ks[k_]/self.N)) )**(-1)
+                A[k,k_] = ( 4*np.sin(np.pi*ks[k]/self.N)**2 + 4*np.sin(np.pi*ks[k_]/self.N)**2 + self.mass**2)**(-1)   
                 A[k_,k] = A[k,k_] # exploit symmetry of kernel under exchange of directions 
 
         return A
@@ -382,7 +385,7 @@ class SU2xSU2():
                 bar()
     
         self.acc_rate = n_acc/(M-start_id)
-        self.time = t1-time.time()
+        self.time = time.time()-t1
         # print('Finished %d HMC steps in %s'%(M,str(timedelta(seconds=self.time))))
         print('Acceptance rate: %.2f%%'%(self.acc_rate*100))
         

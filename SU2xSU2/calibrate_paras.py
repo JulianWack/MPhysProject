@@ -29,7 +29,7 @@ def calibrate(model_paras, sim_paras=None, production_run=False, accel=False):
     '''
     if sim_paras is None:
         # default for fast calibration
-        sim_paras = {'M':200, 'thin_freq':1, 'burnin_frac':0.0, 'renorm_freq':10000, 'accel':accel, 'store_data':False}
+        sim_paras = {'M':500, 'thin_freq':1, 'burnin_frac':0.2, 'renorm_freq':10000, 'accel':accel, 'store_data':False}
     
     good_acc_rate = False
     count = 0 
