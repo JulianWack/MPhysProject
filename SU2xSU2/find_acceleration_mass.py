@@ -45,13 +45,20 @@ def grid_search():
         np.savetxt('data/accel_mass_search.txt', np.row_stack((masses, cost_func, cost_func_err, times, acc_rates, chi_IATs, chi_IATs_err)), header=header_str)
         print('%d/%d done'%(i+1,n))
 
+    idx = np.argmin(cost_func)
+    print('Value of mass parameter yielding most efficient acceleration: M = %.4f'%masses[idx])
+    min_cost = cost_func[idx]
+    cost_func /= min_cost
+    cost_func_err /= min_cost
 
     fig = plt.figure(figsize=(8,6))
 
     plt.errorbar(masses, cost_func, yerr=cost_func_err, fmt='.', capsize=2)
-    plt.xlabel('mass parameter')
-    plt.ylabel('cost function')
-    fig.savefig('plots/mass_parameter.pdf')
+    plt.xlabel('mass parameter $M$')
+    plt.ylabel('cost function $L(M)/L(M^*)$')
+    plt.yscale('log')
+    plt.show()
+    # fig.savefig('plots/mass_parameter.pdf')
 
 
 grid_search()
