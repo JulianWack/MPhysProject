@@ -129,9 +129,9 @@ def correlator_repeats(xs, ys):
     CF: (N,) array
         average correlation function based on the M measurements 
     CF_err (N,) array
-        Jackknife error of the CF
+        IAT corrected SEM of the CF
     '''
-    M = xs.shape[1] # number of measurements
+    N, M = xs.shape # length of one data measurement, number of measurements
 
     # get ACF and its error
     CFs = np.zeros_like(xs)
@@ -139,6 +139,11 @@ def correlator_repeats(xs, ys):
         CFs[:,i] = corr_func_1D(xs[:,i], ys[:,i])
 
     CF, CF_err = np.mean(CFs, axis=1), np.std(CFs, axis=1) / np.sqrt(M)
+    
+    # correct error by IAT
+    for i in range(N):
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = autocorrelator(CFs[i])
+        CF_err[i] *= np.sqrt(IAT)
 
     return CF, CF_err
 
