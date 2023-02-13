@@ -25,8 +25,8 @@ def grid_search():
 
     n = 11 # total number of masses for which cost function is computed
     masses = np.zeros(n)
-    masses[:-1] = np.linspace(1/1000, 1/2, n-1)
-    masses[-1] = 1/xi
+    masses[:-1] = np.linspace(1/100, 1/10, n-1)
+    masses[-1] = 0.02872 # minimum form coarser search # 1/xi
     times, acc_rates, chi_IATs, chi_IATs_err = np.zeros((4,n))
     cost_func, cost_func_err = np.zeros((2,n))
 
@@ -46,7 +46,7 @@ def grid_search():
         print('%d/%d done'%(i+1,n))
 
     idx = np.argmin(cost_func)
-    print('Value of mass parameter yielding most efficient acceleration: M = %.4f'%masses[idx])
+    print('Value of mass parameter yielding most efficient acceleration: M = %.5f'%masses[idx])
     min_cost = cost_func[idx]
     cost_func /= min_cost
     cost_func_err /= min_cost
@@ -56,9 +56,9 @@ def grid_search():
     plt.errorbar(masses, cost_func, yerr=cost_func_err, fmt='.', capsize=2)
     plt.xlabel('mass parameter $M$')
     plt.ylabel('cost function $L(M)/L(M^*)$')
-    plt.yscale('log')
-    plt.show()
-    # fig.savefig('plots/mass_parameter.pdf')
+    # plt.yscale('log')
+    # plt.show()
+    fig.savefig('plots/mass_parameter.pdf')
 
 
 grid_search()
