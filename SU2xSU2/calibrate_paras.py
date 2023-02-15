@@ -6,7 +6,7 @@ def calibrate(model_paras, sim_paras=None, production_run=False, accel=False):
     '''For a model, specified by the dictionary model_paras, this function calibrates the values of ell and eps to produce an acceptance rate in the desireable range between 60 and 80%.
     When acceptance rate is outside this range, the number of steps is adjusted according to the difference to the ideal acceptance rate of 65%. The step size if fixed by requiring
     trajectories to be of unit length. To avoid getting caught in a loop, the calibration is limited to 10 iterations.
-    When sim_paras is not passed, 200 trajectories with no thinning and burn in are simulated to ensure the calibration process is fast. These parameters can be 
+    When sim_paras is not passed, 500 trajectories with no thinning and 50% burn in are simulated to ensure the calibration process is fast. These parameters can be 
     overwritten by passing an appropriate dictionary. 
     When wanting to fine tune the parameters for a production run, set production_run=True and specify the simulation further by passing sim_paras. This will also return the SU2xSU2 instance
     It is advise to perform the above described rough calibration beforehand.
@@ -27,9 +27,14 @@ def calibrate(model_paras, sim_paras=None, production_run=False, accel=False):
         result of calibrated simulation to take measurements later on
     model_paras: as above
     '''
+    # defining bounds for desireable acceptance rate
+    lower_acc, upper_acc = 0.55, 0.8
+
     if sim_paras is None:
         # default for fast calibration
-        sim_paras = {'M':500, 'thin_freq':1, 'burnin_frac':0.2, 'renorm_freq':10000, 'accel':accel, 'store_data':False}
+        sim_paras = {'M':500, 'thin_freq':1, 'burnin_frac':0.5, 'renorm_freq':10000, 'accel':accel, 'store_data':False}
+        # use narrower range for desired acceptance to avoid barely passing fast calibration and then not passing during the production run, causing a much longer simulation to be repeated
+        lower_acc, upper_acc = 0.6, 0.75
     
     good_acc_rate = False
     count = 0 
@@ -40,7 +45,7 @@ def calibrate(model_paras, sim_paras=None, production_run=False, accel=False):
         d_acc_rate = 0.65 - acc_rate
         if count >= 10:
             good_acc_rate = True
-        if acc_rate < 0.6 or acc_rate > 0.8:
+        if acc_rate < lower_acc or acc_rate > upper_acc:
             new_ell = int(np.rint(model_paras['ell']*(1 + d_acc_rate)))
             # due to rounding it can happen that ell is not updated. To avoid getting stuck in a loop, enforce minimal update of +/- 1
             if new_ell == model_paras['ell']:
