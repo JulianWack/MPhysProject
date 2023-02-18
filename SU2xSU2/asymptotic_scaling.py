@@ -18,16 +18,17 @@ def mass_lambda():
     The produced graph also shows the prediction from the continuum theory, allowing to deduce the value of beta 
     above which the continuum is well approximated by a finite sized lattice.  
     '''
-    Ns = [32, 32, 40, 40, 64, 64, 64, 64, 96, 96, 128, 160, 192, 224, 512]
-    a = 1 
-    betas = np.array([0.6, 0.6667, 0.7333, 0.8, 0.8667, 0.9333, 0.9667, 1.0, 1.0333, 1.0667, 1.1333, 1.2, 1.2667, 1.3333, 1.4]) # np.linspace(0.6, 1.4, 13)
+    a = 1
+    Ns = [40, 40, 64, 64, 64, 96, 96, 160, 160, 224, 300, 400]
+    betas = np.array([0.6, 0.6667, 0.7333, 0.8, 0.8667, 0.9333, 1.0, 1.0667, 1.1333, 1.2, 1.2667, 1.3333])
+    
     xi = np.zeros(betas.shape[0])
     xi_err = np.zeros(betas.shape[0])
     reduced_chi2 = np.zeros(betas.shape[0])
     for i,beta in enumerate(betas):
-        model_paras = {'N':Ns[i], 'a':a, 'ell':7, 'eps':1/7, 'beta':beta}
+        model_paras = {'N':Ns[i], 'a':a, 'ell':15, 'eps':1/15, 'beta':beta}
         paras_calibrated = calibrate(model_paras, accel=True)
-        sim_paras = {'M':5000, 'thin_freq':20, 'burnin_frac':0.1, 'accel':True, 'store_data':False}
+        sim_paras = {'M':15000, 'thin_freq':1, 'burnin_frac':1/15, 'accel':True, 'store_data':False}
         model, model_paras = calibrate(paras_calibrated, sim_paras, production_run=True)
         beta_str = str(np.round(beta, 4)).replace('.', '_')
         file_path = 'corfunc_beta/beta_%s.txt'%beta_str

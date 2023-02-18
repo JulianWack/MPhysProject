@@ -571,7 +571,7 @@ class SU2xSU2():
 
 
         def fit(x,a):
-            return np.exp(-x/a)
+            return (np.cosh((x-N_2)/a) - 1) / (np.cosh(N_2/a) - 1)
 
         N_2 = int(self.N/2) 
         ds_2 = ds[:N_2+1]
@@ -580,10 +580,7 @@ class SU2xSU2():
         ww_cor_err_mirrored = np.sqrt(ww_cor_err[:N_2+1]**2 + ww_cor_err[N_2::-1]**2)
 
         # defining fitting range 
-        mask = ww_cor_mirrored>0.05
-        # or based on effective mass plots which requires passing the cut off value
-        # mask = ds_2<cut
-
+        mask = ww_cor_mirrored > 0
         popt, pcov = curve_fit(fit, ds_2[mask], ww_cor_mirrored[mask], sigma=ww_cor_err_mirrored[mask], absolute_sigma=True)
         cor_length = popt[0] # in units of lattice spacing
         cor_length_err = np.sqrt(pcov[0][0])
@@ -600,7 +597,7 @@ class SU2xSU2():
             plt.yscale('log')
             plt.xlabel(r'wall separation [$a$]')
             plt.ylabel('wall-wall correlation')
-            plt.legend(prop={'size':12}, loc='upper center') # location to not conflict with error bars
+            plt.legend(prop={'size':12}, loc='upper right') # location to not conflict with error bars
             fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
             if show_plot:
                 plt.show()
