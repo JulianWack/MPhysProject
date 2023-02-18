@@ -314,12 +314,14 @@ class SU2xSU2():
         return pi
 
 
-    def run_HMC(self, M, thin_freq, burnin_frac, renorm_freq=10000, accel=True, store_data=False):
+    def run_HMC(self, M, thin_freq, burnin_frac, renorm_freq=10000, accel=True, starting_config=None, RGN_state=None, store_data=False):
         '''Perform the HMC algorithm to generate lattice configurations using ordinary or accelerated dynamics (accel=True).
         A total of M trajectories will be simulated. The final chain of configurations will reject the first M*burnin_frac samples as burn in and 
         only consider every thin_freq-th accepted configuration to reduce the autocorrelation. 
         Due to accumulating rounding errors, unitarity will be broken after some number of trajectories. To project back to the group manifold, all matrices are renormalised 
         every renorm_freq-th trajectory. 
+        The chain is fully defined (and thus reproducible) by the model and simulation parameters as well as the initial configuration of the chain and the state of the random number
+        generator. By using the last configuration of a previous chain and the associated RNG state, one can continue the chain seamlessly in a new simulation.
         M: int
             number of HMC trajectories and thus total number of generated samples
         thin_freq: int
@@ -330,10 +332,17 @@ class SU2xSU2():
             after how many trajectories are all matrices renormalized. Set to None to never renormalize
         accel: bool
             By default True, indicating to use Fourier Acceleration
+        starting_config: (N,N,4)
+            first configuration of the chain. If not passed a disordered (i.e hot) start will be used.
+        RGN_state: tuple returned by numpy.random.get_state
+            represents the internal state of the random number generator. Together with starting configuration allows to continue the chain of a previous run.
         store_data: bool
             store simulation parameters and data    
         '''
         # np.random.seed(42) # for debugging
+        if RGN_state is not None:
+            np.random.set_state(RGN_state)
+        
         t1 = time.time()
         # Collection of produced lattice configurations. Each one is (N,N,4) such that at each site the 4 parameters describing the associated SU(2) matrix are stored
         configs = np.empty((M+1, self.N, self.N, 4)) 
@@ -343,15 +352,18 @@ class SU2xSU2():
         start_id = int(np.floor(M*burnin_frac))
         n_acc = 0
 
-        # # cold/ordered start
-        # a0 = np.ones((self.N,self.N,1))
-        # ai = np.zeros((self.N,self.N,3))
-        # configs[0] = np.concatenate([a0,ai], axis=2)
+        if starting_config is None:
+            # # cold/ordered start
+            # a0 = np.ones((self.N,self.N,1))
+            # ai = np.zeros((self.N,self.N,3))
+            # configs[0] = np.concatenate([a0,ai], axis=2)
 
-        # # hot start
-        # sampling 4 points form 4D unit sphere assures that norm of parameter vector is 1 to describe SU(2) matrices. Use a spherically symmetric distribution such as gaussian
-        a = np.random.standard_normal((self.N,self.N,4))
-        configs[0] = SU2.renorm(a)
+            # # hot start
+            # sampling 4 points form 4D unit sphere assures that norm of parameter vector is 1 to describe SU(2) matrices. Use a spherically symmetric distribution such as gaussian
+            a = np.random.standard_normal((self.N,self.N,4))
+            configs[0] = SU2.renorm(a)
+        else:
+            configs[0] = starting_config
 
         if accel:
             self.A = self.kernel_inv_F()
@@ -383,7 +395,10 @@ class SU2xSU2():
                 else:
                     configs[i] = phi 
                 bar()
-    
+
+        # store random number generator state to continue the current chain in a later run
+        self.RGN_state = np.random.get_state()
+
         self.acc_rate = n_acc/(M-start_id)
         self.time = time.time()-t1
         # print('Finished %d HMC steps in %s'%(M,str(timedelta(seconds=self.time))))
