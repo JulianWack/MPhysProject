@@ -708,8 +708,8 @@ def effective_mass(N, beta):
     fig = plt.figure(figsize=(8,6))
 
     cut = -1 # adjust manually
-    plt.errorbar(ds_2[:cut], m_eff_cosh[:cut], yerr=m_eff_err_cosh[:cut], fmt='.', capsize=2, label='$\cosh$')
-    plt.errorbar(ds_2[:cut], m_eff_exp[:cut], yerr=m_eff_err_exp[:cut], fmt='.', capsize=2, label='$\exp$')
+    plt.errorbar(ds_2[:cut], m_eff_cosh[:cut], yerr=m_eff_err_cosh[:cut], fmt='.', capsize=2, label='$\cosh$', c='red')
+    plt.errorbar(ds_2[:cut], m_eff_exp[:cut], yerr=m_eff_err_exp[:cut], fmt='.', capsize=2, label='$\exp$', c='b')
     plt.xlabel(r'wall separation [$a$]')
     plt.ylabel('effective mass')
     fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
@@ -719,8 +719,8 @@ def effective_mass(N, beta):
 
     return
 
-# Ns = [40, 40, 64, 64, 64, 96, 96, 160, 160, 224, 300, 400]
-# betas = np.array([0.6, 0.6667, 0.7333, 0.8, 0.8667, 0.9333, 1.0, 1.0667, 1.1333, 1.2, 1.2667, 1.3333])
+# Ns = [40, 40, 64, 64, 64, 96, 96, 160, 160, 224, 300, 400, 400]
+# betas = np.array([0.6, 0.6667, 0.7333, 0.8, 0.8667, 0.9333, 1.0, 1.0667, 1.1333, 1.2, 1.2667, 1.3, 1.3333])
 
 # for (N,beta) in zip(Ns, betas): 
 #     effective_mass(N, beta)
