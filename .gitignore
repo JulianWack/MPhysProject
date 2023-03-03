@@ -1,7 +1,15 @@
-QHO/my_tests.py
-SU2xSU2/my_tests.py
+# folder containing notes etc. 
 resources/
-# for large simulations the final chain can exceed the 100 MB limit of GitHub
-SU2xSU2/data/single_run/final_chain.npy
+
 # vscode debugging configurations
 SU2xSU2/.vscode/
+
+# files for small tests
+QHO/my_tests.py
+SU2xSU2/my_tests.py
+SU2xSU2_preproduction/my_tests.py
+
+# for large simulations the final chain can exceed the 100 MB limit of GitHub
+SU2xSU2_preproduction/data/single_run/final_chain.npy
+SU2xSU2/data/corfuncs/rawchains/
+SU2xSU2/data/slowdown/rawchains/

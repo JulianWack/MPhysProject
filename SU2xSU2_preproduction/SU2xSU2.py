@@ -1,13 +1,13 @@
 import numpy as np
-from pickle import dump, load 
-import os
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 import matplotlib as mpl
 from cycler import cycler
 import time
 from datetime import timedelta
+from alive_progress import alive_bar
 from scipy.optimize import curve_fit
+from astropy.stats import jackknife_stats
 
 import SU2_mat_routines as SU2
 import correlations
@@ -19,7 +19,6 @@ plt.rcParams.update({'font.size': 20})
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['k', 'g', 'b', 'r'])
 
 
-# simulation class
 class SU2xSU2():
 
     def __init__(self, N, a, ell, eps, beta, mass=0.1): 
@@ -315,15 +314,14 @@ class SU2xSU2():
         return pi
 
 
-    def run_HMC(self, M, thin_freq, burnin_frac, accel=True, measurements=[], chain_paths=[], saving_bool=True, partial_save=5000, starting_config=None, RGN_state=None, renorm_freq=10000):
+    def run_HMC(self, M, thin_freq, burnin_frac, renorm_freq=10000, accel=True, starting_config=None, RGN_state=None, store_data=False):
         '''Perform the HMC algorithm to generate lattice configurations using ordinary or accelerated dynamics (accel=True).
-        A total of M trajectories will be simulated and measurements are taken every thin_freq steps (to reduce the autocorrelation) after the first M*burnin_frac samples are
-        rejected as burn in.
-        Due to accumulating rounding errors, unitarity will be broken after some number of steps. To project back to the group manifold, all matrices are renormalised 
-        every renorm_freq-th step. 
+        A total of M trajectories will be simulated. The final chain of configurations will reject the first M*burnin_frac samples as burn in and 
+        only consider every thin_freq-th accepted configuration to reduce the autocorrelation. 
+        Due to accumulating rounding errors, unitarity will be broken after some number of trajectories. To project back to the group manifold, all matrices are renormalised 
+        every renorm_freq-th trajectory. 
         The chain is fully defined (and thus reproducible) by the model and simulation parameters as well as the initial configuration of the chain and the state of the random number
         generator. By using the last configuration of a previous chain and the associated RNG state, one can continue the chain seamlessly in a new simulation.
-
         M: int
             number of HMC trajectories and thus total number of generated samples
         thin_freq: int
@@ -336,186 +334,293 @@ class SU2xSU2():
             By default True, indicating to use Fourier Acceleration
         starting_config: (N,N,4)
             first configuration of the chain. If not passed a disordered (i.e hot) start will be used.
-        RGN_state: str
-            relative path to a .obj file containing the internal state of the random number generator from a previous run. 
-            When using the final configuration of that run as the starting configuration for this one, the chain is seamlessly continued.
-
-        measurements: list of callables
-            can select from:
-                internal_energy_density, susceptibility, ww_correlation_func
-        chain_paths: list of str
-            same size and order as measurements (if saving_bool=True, otherwise can be left empty), giving the file path relative to root folder to store the measurements.
-            Do not include file extension, data is always saved as .npy file.
-        saving_bool: bool
-            save measurement data
-        partial save: int
-            after how many steps preliminary measurements and chain state is saved to disk. Requires saving_bool=True
+        RGN_state: tuple returned by numpy.random.get_state
+            represents the internal state of the random number generator. Together with starting configuration allows to continue the chain of a previous run.
+        store_data: bool
+            store simulation parameters and data    
         '''
-        def saving(j, data, file_paths):
-            '''Saving measurement chains and state of chain to potentially continue the current chain in a later run
-
-            j: int
-                number of measurements made
-            data: list of np arrays
-                each element is a chain of measurements, which might be (j,) or (j,n) (measuring scalar quantity or array of length n j times)
-            file_paths: list of str
-                relative file paths of measurements in the order that they appear in data
-            '''
-            # store measurement data collected so far at passed file paths
-            for k,file_path in enumerate(file_paths):
-                # make directory if it doesn't exist
-                dir_path = os.path.dirname(file_path)
-                os.makedirs(dir_path, exist_ok=True)
-                np.save(file_path, data[k][:j+1])
-        
-            # store chain state
-            os.makedirs('data/chain_state', exist_ok=True)
-            with open('data/chain_state/RGN_state.obj', 'wb') as f:
-                dump(np.random.get_state(), f)
-            np.save('data/chain_state/config.npy', phi)
-
-            return
-
         # np.random.seed(42) # for debugging
         if RGN_state is not None:
-            with open(RGN_state, 'rb') as f:
-                np.random.set_state(load(f))
+            np.random.set_state(RGN_state)
         
-        # take measurements and count accepted candidates after burn in
-        start_id = int(np.floor(M*burnin_frac)) # number of steps taken in chain before measurements being
-        self.sweeps = np.arange(M)[start_id+1::thin_freq] # positions in the chain when measurements were made
-        self.M = self.sweeps.size # number of measurements
-
-        # initialize arrays to store chain of measurements 
-        data = []
-        if self.internal_energy_density in measurements:
-            data.append(np.zeros(self.M))
-        if self.susceptibility in measurements:
-            data.append(np.zeros(self.M))
-        if self.ww_correlation_func in measurements:
-            data.append(np.zeros((self.M, self.N))) # wall to wall correlation function for each sample
-
-
         t1 = time.time()
+        # Collection of produced lattice configurations. Each one is (N,N,4) such that at each site the 4 parameters describing the associated SU(2) matrix are stored
+        configs = np.empty((M+1, self.N, self.N, 4)) 
+        delta_Hs = np.empty(M)
+
+        # count accepted samples after burn in, set by start_id
+        start_id = int(np.floor(M*burnin_frac))
+        n_acc = 0
+
         if starting_config is None:
             # # cold/ordered start
             # a0 = np.ones((self.N,self.N,1))
             # ai = np.zeros((self.N,self.N,3))
-            # phi = np.concatenate([a0,ai], axis=2)
+            # configs[0] = np.concatenate([a0,ai], axis=2)
 
             # # hot start
             # sampling 4 points form 4D unit sphere assures that norm of parameter vector is 1 to describe SU(2) matrices. Use a spherically symmetric distribution such as gaussian
             a = np.random.standard_normal((self.N,self.N,4))
-            phi = SU2.renorm(a)
+            configs[0] = SU2.renorm(a)
         else:
-            phi = starting_config
+            configs[0] = starting_config
 
         if accel:
             self.A = self.kernel_inv_F()
 
-        # construct chain and take measurements
-        n_acc = 0 # number of accepted candidates
-        j = 0 # counter for position in chain of measurements
-        for i in range(M):
-            # phi is most recent accepted sample, phi_new is a candidate sample.
-            # if candidate gets accepted: phi -> phi_new, otherwise phi -> phi
-            if renorm_freq is not None:
-                if i % renorm_freq == 0:
-                    SU2.renorm(phi)
+        with alive_bar(M) as bar:
+            for i in range(1, configs.shape[0]):
+                phi = configs[i-1]   
+                if renorm_freq is not None:
+                    if i % renorm_freq == 0:
+                        SU2.renorm(phi)
 
-            # take one step in the chain
-            if accel: 
-                pi = self.pi_samples()
-                phi_new, pi_new = self.leapfrog_FA(phi, pi)
-                delta_H = self.Ham_FA(phi_new,-pi_new) - self.Ham_FA(phi,pi)
+                if accel: 
+                    pi = self.pi_samples()
+                    phi_new, pi_new = self.leapfrog_FA(phi, pi)
+                    delta_Hs[i-1] = self.Ham_FA(phi_new,-pi_new) - self.Ham_FA(phi,pi)
 
-            else:
-                # the conjugate momenta are linear combination of Pauli matrices and thus described by 3 parameters
-                pi = np.random.standard_normal((self.N,self.N,3))
-                phi_new, pi_new = self.leapfrog(phi, pi)
-                delta_H = self.Ham(phi_new,-pi_new) - self.Ham(phi,pi)
+                else:
+                    # the conjugate momenta are linear combination of Pauli matrices and thus described by 3 parameters
+                    pi = np.random.standard_normal((self.N,self.N,3))
+                    phi_new, pi_new = self.leapfrog(phi, pi)
+                    delta_Hs[i-1] = self.Ham(phi_new,-pi_new) - self.Ham(phi,pi)
 
-            acc_prob = np.min([1, np.exp(-delta_H)])
+                acc_prob = np.min([1, np.exp(-delta_Hs[i-1])])
 
-            if acc_prob > np.random.random():
-                phi = phi_new
-                if i > start_id:
-                    n_acc += 1 
-            else:
-                phi = phi 
+                if acc_prob > np.random.random():
+                    configs[i] = phi_new
+                    if i >= start_id:
+                        n_acc += 1 
+                else:
+                    configs[i] = phi 
+                bar()
 
-            # take measurements after burin and every thin_freq-th step in chain
-            if (i > start_id) and (i-(start_id+1))%thin_freq == 0:
-                for k, func in enumerate(measurements):
-                    data[k][j] = func(phi)
-                j += 1
+        # store random number generator state to continue the current chain in a later run
+        self.RGN_state = np.random.get_state()
 
-            # store partial results of measurements and current state of chain
-            if saving_bool and i>0 and i%partial_save == 0:
-                print('saving partial results')
-                saving(j, data, chain_paths)
-
-
-        # store full chain of measurements and current state of chain
-        if saving_bool:
-            saving(self.M, data, chain_paths)
-
-        self.acc_rate = n_acc/(M-start_id) # acceptance rate as decimal number
-        self.time = time.time() - t1 # combined simulation and measurement time in seconds
-        print('Completed %d steps in %s. \nSimulation rate: %.2f steps/sec \nAcceptance rate: %.2f%%'%(M, str(timedelta(seconds=self.time)), M/self.time, self.acc_rate*100))
+        self.acc_rate = n_acc/(M-start_id)
+        self.time = time.time()-t1
+        # print('Finished %d HMC steps in %s'%(M,str(timedelta(seconds=self.time))))
+        print('Acceptance rate: %.2f%%'%(self.acc_rate*100))
         
-        return
-        # stop here and do ensemble average in individual files, allowing for flexibility and immediate plotting
-        # can keep get_avg_error as a function in this file to be imported into the analysis ones. 
+        # make final chain of configurations
+        # remove starting configuration. 
+        # Using np.delete(configs, 0, axis=0) creates a new array and is thus memory intensive, giving memory error for large configs array. 
+        # Slicing just produces a view of the original array
+        configs = configs[1:] 
+        # Reject burn in and thin remaining chain
+        start = start_id+thin_freq-1
+        mask = np.s_[start::thin_freq]
 
+        self.configs = configs[mask] # final configurations (M,N,N,4)
+        # to plot evolution of an observable, such as delta H, over trajectories store index of trajectories in the final chain
+        self.sweeps = np.arange(M)[mask]
+        self.M = self.sweeps.shape[0] # number of observations
+        self.delta_Hs = delta_Hs[mask]
+        
+        if store_data:
+            np.savetxt('data/single_run/model_paras.txt', [self.N, self.a, self.ell, self.eps, self.beta], header='N, a, ell, eps, beta')
+            np.savetxt('data/single_run/sim_paras.txt', [M, thin_freq, burnin_frac, self.acc_rate], header='M, thin freq, burn in, accept rate')
+            np.save('data/single_run/final_chain.npy', self.configs)
+            np.save('data/single_run/sweeps.npy', self.sweeps)
+            np.save('data/single_run/delta_Hs.npy', self.delta_Hs)
+            
 
-        # get ensemble avg and error 
-        # returns = []
-        # for d in data:
-        #     returns.append(self.get_avg_error(d))
-        # e_avg, e_err = self.get_avg_error(es)
-        # chi_avg, chi_err, chi_IAT, chi_IAT_err = self.get_avg_error(chis, get_IAT=True)
-
-        # cor, cor_err = self.get_avg_error(cor_funcs)
-        # plot correlation function and get correlation length
-        # xi, xi_err, reduced_chi2 = self.cor_length(cor, cor_err)
-
-
-
-    # possible measurements
-    def internal_energy_density(self, phi):
-        '''Computes the internal energy (action) per site of configuration phi.
-
-        phi: (self.N, self.N, 4)
-            configuration to perform computation on
-
-        Returns:
-        e: float
-            action per site
+    def load_data(self):
+        '''Loads in data from previous simulation.
         '''
-        e = self.action(phi) / (-self.beta * 4 * self.N**2) # definition of internal energy in terms of the action
+        self.configs = np.load('data/single_run/final_chain.npy')
+        self.delta_Hs = np.load('data/single_run/delta_Hs.npy')
+        self.sweeps = np.load('data/single_run/sweeps.npy')
+        self.M = self.sweeps.shape[0]
 
-        return e
+
+    def exp__dH(self, make_plot=False):
+        '''Computes the average of exp(-dH) and the standard error on the mean. Note that dH = H_new - H_old is the difference of the Hamiltonian between 
+        two consecutive configurations in the final (thinned and burn in rejected) chain. If the chain has thermalised successfully, the average will be close to 1.
+        Optionally, plot exp(-dH) against HMC sweeps i.e. MC time.
+        '''
+        exp__dH_avg, _, exp__dH_err, _ = jackknife_stats(np.exp(-self.delta_Hs), np.mean, 0.95)
+
+        if make_plot:
+            fig = plt.figure(figsize=(8,6))
+            plt.scatter(self.sweeps, np.exp(-self.delta_Hs), s=2) 
+            plt.hlines(exp__dH_avg, self.sweeps[0], self.sweeps[-1], linestyles='-', color='r', label=r'$\langle e^{-\Delta H} \rangle = %.3f \pm %.3f$'%(exp__dH_avg, exp__dH_err))
+            plt.xlabel('HMC sweep')
+            plt.ylabel('$e^{-\Delta H}$')
+            plt.legend(prop={'size': 12})
+            plt.show()
+            # fig.savefig('plots/deltaH_vs_sweeps.pdf')
+
+        return exp__dH_avg, exp__dH_err
+
+
+    def order_parameter(self, make_plot=False):
+        ''' Finds the average matrix of each configuration, The normalized parameter vector of this average matrix is used as the (vectorial) order parameter. 
+        Alternative choice described in eq 3.1 of https://www.sciencedirect.com/science/article/pii/0550321382900657
+        As no phase transition is present in this model, the order parameter should be close to zero.
+        Plots evolution over trajectories and a histogram of the component values for all parameter vectors.
+
+        Returns
+        ms_avg: (4,) array
+            the order parameter when averaged over all configurations 
+        ms_err: (4,) array
+            error on the average 
+        '''
+        avg_SU2 = np.mean(self.configs, axis=(1,2)) # (M,4)
+        norm = np.sqrt(np.sum(avg_SU2**2, axis=-1)).reshape((avg_SU2.shape[0], 1))
+        ms = np.divide(avg_SU2, norm, out=np.zeros_like(avg_SU2), where=norm!=0)
+
+        ms_avg, ms_err = np.empty(4), np.empty(4)
+        ms_int = np.empty((4,2))
+        for i in range(4):
+            # Jackknife error has tendency to be smaller than correction of SEM via IAT
+            # ms_avg[i], _, ms_err[i], ms_int[i] = jackknife_stats(ms[:,i], np.mean, 0.95)
+            ts, m_ACF, m_ACF_err, m_IAT, m_IAT_err, delta_t = correlations.autocorrelator(ms[:,i])
+            ms_avg[i] = np.mean(ms[:,i])
+            ms_err[i] = np.sqrt(m_IAT/self.M) * np.std(ms[:,i])
+
+        if make_plot:
+            # evolution over trajectories
+            fig, axes = plt.subplots(2, 2, figsize=(12,8), sharex='col')
+            axs = axes.flatten() 
+
+            cs=['k', 'g', 'b', 'r']
+            for i, ax in enumerate(axs):
+                ax.scatter(self.sweeps, ms[:,i], s=2, color=cs[i]) 
+                ax.hlines(ms_avg[i], self.sweeps[0], self.sweeps[-1], linestyles='--', color=cs[i])
+                ax.fill_between(self.sweeps, ms_avg[i]-ms_err[i], ms_avg[i]+ms_err[i], color=cs[i], alpha=0.2)
+                # ax.fill_between(self.sweeps, ms_int[i][0], ms_int[i][1], color=cs[i], alpha=0.2)
+                if i in [2,3]:
+                    ax.set_xlabel('HMC sweep')
+                ax.set_ylabel('$m_{%d}$'%i)
+        
+            fig.tight_layout()
+            plt.show()
+            # fig.savefig('plots/m_vs_sweeps.pdf')
+
+            # histogram
+            fig = plt.figure(figsize=(8,6))
+            all_paras = self.configs.reshape((-1,4))
+            norm = np.sqrt(np.sum(all_paras**2, axis=-1)).reshape((all_paras.shape[0], 1))
+            normed_paras = np.divide(all_paras, norm, out=np.zeros_like(all_paras), where=norm!=0)
+
+            for i in range(4):
+                plt.hist(normed_paras[:,i], bins='auto', density='True', histtype='step', label='$m_{%d}$'%i)
+            plt.xlabel('component value')
+            plt.ylabel('probability density')
+            plt.legend(prop={'size': 12})
+            plt.show()
+            # fig.savefig('plots/m_histogram.pdf')
+
+
+        return ms_avg, ms_err
+
+
+    def internal_energy_density(self, get_IAT=True):
+        '''Computes the internal energy (action) per site for each accepted lattice configuration and optionally finds the associated IAT.
+        Returns:
+        e_avg: float
+            action per site when averaged over all accepted configurations
+        e_err: float
+            SEM modified by sqrt(IAT) (or Jackknife error of average)
+        IAT: float
+            integrated autocorrelation time for action per site
+        IAT_err float
+            error of IAT 
+        '''
+        e = np.empty(self.M) # internal energy density for all accepted configurations
+        for i,phi in enumerate(self.configs):
+            e[i] = self.action(phi) / (-self.beta * 4 * self.N**2) # definition of internal energy in terms of the action
+
+        # e_avg, _, e_err, _ = jackknife_stats(e, np.mean, 0.95)
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlations.autocorrelator(e)
+        e_avg = np.mean(e)
+        e_err = np.sqrt(IAT/self.M) * np.std(e)
+        
+        if not get_IAT:
+            return e_avg, e_err
+        
+        return e_avg, e_err, IAT, IAT_err
       
 
-    def ww_correlation_func(self, phi):
-        ''' Computes the NON-normalized wall to wall correlation as described in the report via the cross correlation theorem.
-
-        phi: (self.N, self.N, 4)
-            configuration to perform computation on
-
-        Returns:
-        ww_cor: (self.N, )
-            wall to wall correlation evaluated for wall separation in interval [0, self.N). NOT normalized to value at zero separation.
+    def ww_correlation(self, save_data=False, data_path='wallwall_cor.txt', make_plot=False, show_plot=True, plot_path='wallwall_cor.pdf'):
+        ''' 
+        Computes the wall to wall correlation as described in the report via the cross correlation theorem.
+        The data can be optionally saved and the correlation function with fitted exponential decays is plotted.
+        If show_plot=True the produced plot will just be shown but not saved. If show_plot=False (and make_plot=True) the plot will be saved and not shown.
+        Note that data_path is relative to the data directory and must end in .txt. Similarly, plot_path is relative to the plots directory (.pdf recommended).
+        
+        Returns
+        cor_length: float
+            fitted correlation length in units of the lattice spacing
+        cor_length_err: float
+            error in the fitted correlation length
+        reduced_chi2: float
+            chi-square per degree of freedom as a goodness of fit proxy
         '''
-        ww_cor = np.zeros(self.N)
-        Phi = np.sum(phi, axis=0) # (N,4)
-        for k in range(4):
-            cf, _ = correlations.correlator(Phi[:,k], Phi[:,k])
-            ww_cor += cf
-        ww_cor *= 4/self.N**2
+        # for nicer plotting and fitting include value for separation d=self.N manually as being equivalent to d=0 (using periodic boundary conditions)
+        ds = np.arange(self.N+1)
+        ww_cor, ww_cor_err = np.zeros(self.N+1),np.zeros(self.N+1)
+        ww_cor_err2 = np.zeros(self.N+1)
 
-        return ww_cor
+        t1 = time.time()
+        Phi = np.sum(self.configs, axis=1) # (M,N,4)
+        for k in range(4):
+            # passes (N,M) arrays: correlations along axis 0 while axis 1 hosts results from repeating the measurement for different configurations
+            cf, cf_err = correlations.correlator_repeats(Phi[:,:,k].T, Phi[:,:,k].T)
+            ww_cor[:-1] += cf
+            ww_cor_err2[:-1] += cf_err**2 # errors coming from each component of the parameter vector add in quadrature
+        ww_cor *= 4/self.N**2
+        ww_cor_err = 4/self.N**2 * np.sqrt(ww_cor_err2)
+        ww_cor[-1], ww_cor_err[-1] = ww_cor[0], ww_cor_err[0]
+        # normalize
+        ww_cor, ww_cor_err = ww_cor/ww_cor[0], ww_cor_err/ww_cor[0]
+        t2 = time.time()
+        print('Wall correlation time: %s'%(str(timedelta(seconds=t2-t1))))
+
+        if save_data:
+            meta_str = 'N=%d, a=%.3f, beta=%.3f, number of configurations=%d'%(self.N, self.a, self.beta, self.M)
+            np.savetxt('data/%s'%data_path, np.vstack((ds, ww_cor, ww_cor_err)), header=meta_str+'\nRows: separation in units of lattice spacing, correlation function and its error')
+
+
+        def fit(x,a):
+            return (np.cosh((x-N_2)/a) - 1) / (np.cosh(N_2/a) - 1)
+
+        N_2 = int(self.N/2) 
+        ds_2 = ds[:N_2+1]
+        # exploit symmetry about N/2 to reduce errors (effectively increasing number of data points by factor of 2)
+        ww_cor_mirrored = 1/2 * (ww_cor[:N_2+1] + ww_cor[N_2:][::-1])
+        ww_cor_err_mirrored = np.sqrt(ww_cor_err[:N_2+1]**2 + ww_cor_err[N_2::-1]**2)  / np.sqrt(2)
+
+        # defining fitting range 
+        mask = ww_cor_mirrored > 0
+        popt, pcov = curve_fit(fit, ds_2[mask], ww_cor_mirrored[mask], sigma=ww_cor_err_mirrored[mask], absolute_sigma=True)
+        cor_length = popt[0] # in units of lattice spacing
+        cor_length_err = np.sqrt(pcov[0][0])
+
+        r = ww_cor_mirrored[mask] - fit(ds_2[mask], *popt)
+        reduced_chi2 = np.sum((r/ww_cor_err_mirrored[mask])**2) / (mask.size - 1) # dof = number of observations - number of fitted parameters
+
+        if make_plot:
+            fig = plt.figure(figsize=(8,6))
+
+            plt.errorbar(ds_2, ww_cor_mirrored, yerr=ww_cor_err_mirrored, fmt='.', capsize=2)
+            ds_fit = np.linspace(0, ds_2[mask][-1], 500)
+            plt.plot(ds_fit, fit(ds_fit,*popt), c='g', label='$\\xi = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(cor_length, cor_length_err, reduced_chi2))
+            plt.yscale('log')
+            plt.xlabel(r'wall separation [$a$]')
+            plt.ylabel('wall-wall correlation')
+            plt.legend(prop={'size':12}, loc='upper right') # location to not conflict with error bars
+            fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
+            if show_plot:
+                plt.show()
+            else:
+                fig.savefig('plots/%s'%plot_path)
+                plt.close() # for memory purposes
+
+        return cor_length, cor_length_err, reduced_chi2
 
 
     def susceptibility(self, phi):
@@ -523,137 +628,38 @@ class SU2xSU2():
         Computes the susceptibility i.e. the average point to point correlation for configuration phi.
         As described in the report, this closely related to summing the wall to wall correlation function which can be computed efficiently via the cross correlation theorem.
 
-        phi: (self.N, self.N, 4)
-            configuration to perform computation on
-
         Returns:
         chi: float
-            susceptibility of phi
+            susceptibility of the passed configuration phi
         '''
-        chi = np.sum( 1/2*self.ww_correlation_func(phi) )
+        ww_cor = np.zeros(self.N)
+        Phi = np.sum(phi, axis=0) # (N,4)
+        for k in range(4):
+            cf, _ = correlations.correlator(Phi[:,k], Phi[:,k])
+            ww_cor += cf
+        ww_cor *= 2/self.N**2
+        chi = np.sum(ww_cor)
 
         return chi
 
 
-### ---------------- ### Model independent routines commonly used
+    def susceptibility_IAT(self):
+        '''Computes the IAT and the associated error for the susceptibilities of the chain.
+        Also finds the average susceptibility and the IAT corrected SEM. 
 
-# perform ensemble average and get error estimate
-def get_avg_error(data, get_IAT=False):
-    '''Accepts sequence of measurements of a single observable and returns the average and the standard error on the mean, corrected for autocorrelation in the chain.
-    Optionally also returns integrated autocorrelation time and its error.
-    Elements of data, refereed to as data_point, can be either floats or 1D arrays of length N. The returned average and error will be of the same shape as data_point.
+        Returns:
+        IAT, IAT_err: float, float
+            integrated autocorrelation time for susceptibility and its error
+        chi, chi_err: float, float
+            average susceptibility and its error
+        '''
+        chis = np.empty(self.M)
+        for i,phi in enumerate(self.configs):
+            chis[i] = self.susceptibility(phi)
 
-    data: (self.M, ) or (self.M, N)
-        set of measurements made during the chain
-    get_IAT: bool
-        set to True to return IAT and its error
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlations.autocorrelator(chis)
+        # chi_avg, _, chi_err, _ = jackknife_stats(chis, np.mean, 0.95)
+        chi_avg = np.mean(chis)
+        chi_err = np.sqrt(IAT/self.M) * np.std(chis)
 
-    Returns:
-    avg: data_point.shape i.e. float or (N, )
-        ensemble average of data
-    error: float or (N, )
-        SEM with correction factor through the IAT applied
-    IAT: float
-        integrated autocorrelation time (IAT)
-    IAT_err: float 
-        error of IAT
-    '''
-    if len(data.shape) == 1:
-        data = data.reshape((data.shape[0], 1))
-    M, N = data.shape # number of repetitions, length of each data point
-
-    avg = np.mean(data, axis=0)
-    error = np.std(data, axis=0) / np.sqrt(M)
-
-    # correct error through IAT
-    IAT, IAT_err = np.zeros((2,N))
-    for i in range(N):
-        ts, ACF, ACF_err, IAT[i], IAT_err[i], comp_time = correlations.autocorrelator(data[:,i])
-        error[i] *= np.sqrt(IAT[i])
-
-    # to return floats if data points were floats
-    if N == 1:
-        avg, error = avg[0], error[0]
-        IAT, IAT_err = IAT[0], IAT_err[0]
-
-    if get_IAT:
-        return avg, error, IAT, IAT_err
-    
-    return avg, error
-
-
-# fit correlation length 
-def corlength(ww_cor, ww_cor_err, data_save_path='', plot_save_path='', make_plot=False, show_plot=True):
-    ''' 
-    Processes ensemble average of wall to wall correlation function and its error to produce a plot and fit the analytically expected form of the correlation function.
-    Optionally can store data and plot.
-    
-    ww_cor: (N, )
-        ensemble average of correlation function on a lattice of length N
-    ww_cor_err: (N, )
-        associated error for all possible wall separations
-    data_save_path: str
-        path at which the processed correlation function will be stored as an .npy file (extension not needed in path)
-    make_plot: bool
-        make plot of correlation function with fit
-    show_plot: bool
-        show the produced plot. Only has an effect if make_plot=True
-    plot_save_path: str
-        path at which the produced plot will be stored. File extension needed and .pdf recommended
-
-    Returns
-    cor_length: float
-        fitted correlation length in units of the lattice spacing
-    cor_length_err: float
-        error in the fitted correlation length
-    reduced_chi2: float
-        chi-square per degree of freedom as a goodness of fit proxy
-    '''
-    def fit(d,xi):
-        return (np.cosh((d-N_2)/xi) - 1) / (np.cosh(N_2/xi) - 1)
-
-    # normalize and use periodic bcs to get correlation for wall separation of N to equal that of separation 0
-    ww_cor, ww_cor_err = ww_cor/ww_cor[0], ww_cor_err/ww_cor[0]
-    ww_cor, ww_cor_err = np.concatenate((ww_cor, [ww_cor[0]])), np.concatenate((ww_cor_err, [ww_cor_err[0]]))
-
-    # use symmetry about N/2 due to periodic bcs and mirror the data to reduce errors (effectively increasing number of data points by factor of 2)
-    N_2 = int(ww_cor.shape[0]/2) 
-    ds = np.arange(N_2+1) # wall separations covering half the lattice length
-    cor = 1/2 * (ww_cor[:N_2+1] + ww_cor[N_2:][::-1])
-    cor_err = np.sqrt(ww_cor_err[:N_2+1]**2 + ww_cor_err[N_2::-1]**2) / np.sqrt(2)
-
-    # store processed correlation function data
-    if data_save_path != '':
-        dir_path = os.path.dirname(data_save_path) # make directory if it doesn't exist
-        os.makedirs(dir_path, exist_ok=True)
-        np.save(data_save_path, np.row_stack([ds, cor, cor_err]))
-
-    # perform the fit  
-    mask = cor > 0 # fitting range
-    popt, pcov = curve_fit(fit, ds[mask], cor[mask], sigma=cor_err[mask], absolute_sigma=True)
-    cor_length = popt[0] # in units of lattice spacing
-    cor_length_err = np.sqrt(pcov[0][0])
-
-    r = cor[mask] - fit(ds[mask], *popt)
-    reduced_chi2 = np.sum((r/cor_err[mask])**2) / (mask.size - 1) # dof = number of observations - number of fitted parameters
-
-    if make_plot:
-        fig = plt.figure(figsize=(8,6))
-
-        plt.errorbar(ds, cor, yerr=cor_err, fmt='.', capsize=2)
-        ds_fit = np.linspace(0, ds[mask][-1], 500)
-        plt.plot(ds_fit, fit(ds_fit,*popt), c='g', label='$\\xi = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(cor_length, cor_length_err, reduced_chi2))
-        plt.yscale('log')
-        plt.xlabel(r'wall separation [$a$]')
-        plt.ylabel('wall-wall correlation')
-        plt.legend(prop={'size':12}, frameon=True, loc='upper right') # location to not conflict with error bars
-        fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
-        if show_plot:
-            plt.show()
-        else:
-            dir_path = os.path.dirname(plot_save_path) # make directory if it doesn't exist
-            os.makedirs(dir_path, exist_ok=True)
-            fig.savefig(plot_save_path)
-            plt.close() # for memory purposes
-
-    return cor_length, cor_length_err, reduced_chi2
+        return IAT, IAT_err, chi_avg, chi_err

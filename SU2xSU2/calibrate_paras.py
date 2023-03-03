@@ -2,42 +2,39 @@ import numpy as np
 from SU2xSU2 import SU2xSU2
 
 
-def calibrate(model_paras, sim_paras=None, production_run=False, accel=False):
-    '''For a model, specified by the dictionary model_paras, this function calibrates the values of ell and eps to produce an acceptance rate in the desireable range between 60 and 80%.
+def calibrate(model_paras, accel=False, sim_paras=None):
+    '''For a model, specified by the dictionary model_paras, this function calibrates the values of ell and eps to produce an acceptance rate in the desireable range between 60 and 75%.
     When acceptance rate is outside this range, the number of steps is adjusted according to the difference to the ideal acceptance rate of 65%. The step size if fixed by requiring
     trajectories to be of unit length. To avoid getting caught in a loop, the calibration is limited to 10 iterations.
-    When sim_paras is not passed, 500 trajectories with no thinning and 50% burn in are simulated to ensure the calibration process is fast. These parameters can be 
-    overwritten by passing an appropriate dictionary. 
-    When wanting to fine tune the parameters for a production run, set production_run=True and specify the simulation further by passing sim_paras. This will also return the SU2xSU2 instance
-    It is advise to perform the above described rough calibration beforehand.
+    When sim_paras is not passed, a default calibration is performed: 500 trajectories (no thinning and 50% burn in) are simulated and no measurements are taken.
+    Passing a dictionary for sim_paras overwrites this.
+
+    Recommended use: For the model of interest, specify the acceleration boolean and leave the simulation parameters as a default. Use the returned calibrated parameters to perform a
+    production run i.e. call run_HMC(**sim_paras) where sim_paras specifies the chain and measurements you want to take.
+    One can also perform the production run through this function by passing sim_paras.
     
     model_paras: dict
         {N, a, ell, eps, beta} with ell, eps as guesses to start the calibration. Their product must be 1
+    accel: bool
+        use acceleration or not
     sim_paras: dict
-        {M, thin_freq, burnin_frac, 'renorm_freq':10000, accel, 'store_data':False}
-    production_run: bool
-        set to True to return the calibrated SU2xSU2 instance 
-
+        arguments of SU2xSU2.run_HMC, namely
+        {M, thin_freq, burnin_frac, accel=True, measurements=[], chain_paths=[], saving_bool=True, partial_save=5000, starting_config=None, RGN_state=None, renorm_freq=10000}
+        
     Returns
-    if not production run:
     model_paras: dict
         calibrated model parameters
-    else:
-    model: SU2xSU2 object
-        result of calibrated simulation to take measurements later on
-    model_paras: as above
     '''
     # defining bounds for desireable acceptance rate
-    lower_acc, upper_acc = 0.55, 0.8
+    lower_acc, upper_acc = 0.6, 0.75
 
     if sim_paras is None:
         # default for fast calibration
-        sim_paras = {'M':500, 'thin_freq':1, 'burnin_frac':0.5, 'renorm_freq':10000, 'accel':accel, 'store_data':False}
-        # use narrower range for desired acceptance to avoid barely passing fast calibration and then not passing during the production run, causing a much longer simulation to be repeated
-        lower_acc, upper_acc = 0.6, 0.75
+        sim_paras = {'M':500, 'thin_freq':1, 'burnin_frac':0.5, 'accel':accel, 'saving_bool':False}
     
     good_acc_rate = False
     count = 0 
+    stop_flag = False
     while good_acc_rate == False:
         model = SU2xSU2(**model_paras)
         model.run_HMC(**sim_paras)  
@@ -54,14 +51,19 @@ def calibrate(model_paras, sim_paras=None, production_run=False, accel=False):
                 else:
                     new_ell -= 1
                     if new_ell == 0:
-                        break # stop calibration when step size has to be reduce below 1. 
+                        # stop calibration when step size has to be reduce below 1.
+                        stop_flag = True
+                        break  
             model_paras['ell'] = new_ell
             model_paras['eps'] = 1/model_paras['ell']
             count +=1
         else:
             good_acc_rate = True
 
-    if production_run:
-        return model, model_paras
+    stats = 'acc= %.2f%%, ell=%d, eps=%.3f'%(acc_rate*100, model_paras['ell'], model_paras['eps'])
+    if count < 10 and not stop_flag:
+        print('Successful calibration: '+stats)
+    else:
+        print('Unsuccessful calibration: '+stats)
 
     return model_paras
