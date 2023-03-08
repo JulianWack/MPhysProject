@@ -17,6 +17,9 @@ mpl.rcParams['axes.prop_cycle'] = cycler(color=['k', 'g', 'b', 'r'])
 def power_law(x, z, c):
     return c*x**z
 
+def linear_func(x, z, b):
+    return z*x + b 
+
 def fit_IAT(xi, IAT, IAT_err):
     '''
     Fit power law for integrated autocorrelation time as function of the correlation length xi.
@@ -29,7 +32,9 @@ def fit_IAT(xi, IAT, IAT_err):
     z_err: float
         error of the found dynamical exponent 
     '''
-    popt, pcov = curve_fit(power_law, xi, IAT, sigma=IAT_err, absolute_sigma=True)
+    log_IAT = np.log(IAT)
+    log_IAT_err = IAT_err / IAT
+    popt, pcov = curve_fit(linear_func, np.log(xi), log_IAT, sigma=log_IAT_err, absolute_sigma=True)
     z = popt[0]
     z_err = np.sqrt(pcov[0][0])
 
@@ -44,7 +49,7 @@ def chi_IAT_scaling():
     The acceleration mass parameter is chosen as the inverse of the fitted correlation length, which was found to yield close to optimal acceleration.
     '''
     a = 1
-    Ns, betas, xis, _, _ = np.loadtxt('data/corlen_beta_old.txt')
+    Ns, betas, xis, _, _ = np.loadtxt('data/corlen_beta.txt')
     M = 100000 # number of trajectories to simulate for each N, beta pair
   
     accel_bool = [False, True]
@@ -95,20 +100,15 @@ def chi_IAT_scaling():
     zs, zs_err, red_chi2s = np.zeros((3,2)) 
     for k in range(2):
         popt, zs[k], zs_err[k] = fit_IAT(xis[:cut], IATs[k][:cut], IATs_err[k][:cut])
-        fits[k] = power_law(xis[:cut], *popt)
+        fits[k] = power_law(xis[:cut], popt[0], np.exp(popt[1]))
         r = IATs[k][:cut] - fits[k]
         red_chi2s[k] = np.sum((r/IATs[k][:cut])**2) / (fits[k].size - 2) # dof = number of observations - number of fitted parameters
 
 
     fig = plt.figure(figsize=(8,6))
-
-    # move one data serires slightly for better visibility
-    # plt.errorbar(xis[:-3], IATs[0][:-3], yerr=IATs_err[0][:-3], c='g', fmt='.', capsize=2, label='HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[0],zs_err[0], red_chi2s[0]))
-    # plt.errorbar(xis[-3:]+0.5, IATs[0][-3:], yerr=IATs_err[0][-3:], c='g', fmt='.', capsize=2)
-    
+   
     plt.errorbar(xis, IATs[0], yerr=IATs_err[0], c='b', fmt='.', capsize=2, label='HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[0],zs_err[0], red_chi2s[0]))
     plt.plot(xis[:cut], fits[0], c='b')
-
     plt.errorbar(xis, IATs[1], yerr=IATs_err[1], c='r', fmt='.', capsize=2, label='FA HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[1],zs_err[1], red_chi2s[1]))
     plt.plot(xis[:cut], fits[1], c='r')
 

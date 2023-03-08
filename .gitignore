@@ -9,6 +9,10 @@ QHO/my_tests.py
 SU2xSU2/my_tests.py
 SU2xSU2_preproduction/my_tests.py
 
+# unfinished plots and associated data
+SU2xSU2/data/mixed_data/
+SU2xSU2/plots/mixed_plots/
+
 # for large simulations the final chain can exceed the 100 MB limit of GitHub
 SU2xSU2_preproduction/data/single_run/final_chain.npy
 SU2xSU2/data/corfuncs/rawchains/

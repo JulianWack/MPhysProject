@@ -393,7 +393,7 @@ class SU2xSU2():
         if self.susceptibility in measurements:
             data.append(np.zeros(self.M))
         if self.ww_correlation_func in measurements:
-            data.append(np.zeros((self.M, self.N))) # wall to wall correlation function for each sample
+            data.append(np.zeros((self.M, self.N))) # unprocessed (not normalized, on range [0,N)) wall to wall correlation function for each sample
 
 
         t1 = time.time()
@@ -644,8 +644,8 @@ def corlength(ww_cor, ww_cor_err, data_save_path='', plot_save_path='', make_plo
         ds_fit = np.linspace(0, ds[mask][-1], 500)
         plt.plot(ds_fit, fit(ds_fit,*popt), c='g', label='$\\xi = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(cor_length, cor_length_err, reduced_chi2))
         plt.yscale('log')
-        plt.xlabel(r'wall separation [$a$]')
-        plt.ylabel('wall-wall correlation')
+        plt.xlabel(r'wall separation $d$ [$a$]')
+        plt.ylabel('wall wall correlation $C_{ww}(d)$')
         plt.legend(prop={'size':12}, frameon=True, loc='upper right') # location to not conflict with error bars
         fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
         if show_plot:
