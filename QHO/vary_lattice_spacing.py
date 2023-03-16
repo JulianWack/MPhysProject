@@ -2,7 +2,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from cycler import cycler
+
 from Oscillator import Oscillator
+from calibrate_paras import calibrate
 
 plt.style.use('science')
 plt.rcParams.update({'font.size': 20})
@@ -14,155 +16,95 @@ m = 1
 w = 1
 N = 100
 
-num = 30
-# a_s = np.linspace(0.05, 1, num)
-# eps_guess = np.linspace(0.1, 0.3, num)
-# ell_guess = np.rint(1/eps_guess)
+# num = 15
+# a_s = np.linspace(1, 0.05, num)
+# focus on region with interesting behavior 
+small = np.linspace(0.05, 0.4, 10)
+large = np.linspace(0.45, 1, 4)
+a_s = np.concatenate((small,large))[::-1]
+num = a_s.size
 
-# when already run for the set lattice spacings
-a_s = np.loadtxt('data/vary_a/paras')[:,0]
-eps_guess = np.loadtxt('data/vary_a/paras')[:,2]
-ell_guess = np.rint(np.loadtxt('data/vary_a/paras')[:,1])
+paras_record = np.empty((num, 6)) # each row stores basic simulation parameters and results
 
-paras_record = np.empty((num, 7)) # each row stores basic simulation parameters and results
+# x2, x2_err, x2_lat, x2_cts
+x2_data = np.zeros((4, num))
+x2_data[-1] = np.full(num, 1/(2*m*w))
 
-x2s, x2_errs = np.full(num, np.nan), np.full(num, np.nan)
-x2s_dis = np.full(num, np.nan)
-x2s_cts = np.full(num, 1/(2*m*w))
+# E0, E0_err, E0_lat, E0_cts
+E0_data = np.zeros((4, num))
+E0_data[-1] = np.full(num, 0.5*w)
 
-E0s, E0_errs = np.full(num, np.nan), np.full(num, np.nan)
-E0s_dis = np.full(num, np.nan)
-E0s_cts = np.full(num, 0.5*w)
+# energy gap: dE, dE_err, dE_lat, dE_cts
+dE_data = np.zeros((4, num))
+dE_data[-1] = np.full(num, w)
 
-E1_E0s, E1_E0_errs = np.full(num, np.nan), np.full(num, np.nan)
-E1_E0s_dis = np.full(num, np.nan)
-E1_E0s_cts = np.full(num, w) 
 
+prev_ell, prev_eps = 2, 1/2
 for i, a in enumerate(a_s):
-    ell = int(ell_guess[i])
-    eps = eps_guess[i]
-    good_acc_rate = False
-    while good_acc_rate == False:
-        QHO = Oscillator(m, w, N, a, ell, eps)
-        QHO.run_HMC(100000, 15, 0.1, accel=False, store_data=False)
-        acc_rate = QHO.acc_rate
-        # if acceptance rate outwith desired range, adjust step size by +/- 10% and run again 
-        if acc_rate < 0.6:
-            eps *= 0.9
-            ell = int(1/eps)
-        elif acc_rate > 0.75:
-            eps *= 1.1
-            ell = int(1/eps)
-        else:
-            good_acc_rate = True
+    model_paras = {'m':m, 'w':w, 'N':N, 'a':a, 'ell':prev_ell, 'eps':prev_eps}
+    paras_calibrated = calibrate(model_paras, accel=True)
+    prev_ell, prev_eps = paras_calibrated['ell'], paras_calibrated['eps']
 
+    QHO = Oscillator(**paras_calibrated)
+    sim_paras = {'M':50000, 'thin_freq':1, 'burnin_frac':0.1, 'accel':True, 'store_data':False}
+    QHO.run_HMC(**sim_paras) 
 
+    # measurements
     tau_int, tau_int_err = QHO.autocorrelation(make_plot=False)
-    paras_record[i] = np.array([a, ell, eps, ell*eps, acc_rate, tau_int, tau_int_err])
+    paras_record[i] = np.array([a, QHO.ell, QHO.eps, QHO.acc_rate, tau_int, tau_int_err])
+
+    x2_data[0,i], x2_data[1,i] = QHO.x_moment(2)
+    x2_data[2,i] = QHO.x2_dis_theo()
+
+    E0_data[0,i], E0_data[1,i] = QHO.gs_energy()
+    E0_data[2,i] = QHO.gs_energy_dis_theo()
+
+    dE_data[2,i] = QHO.delta_E_dis_theo()
+    dE_data[0,i], dE_data[1,i] = QHO.correlation(upper=dE_data[2,i]/a) # use analytically known correlation length as guide to find fitting range
+    
+
+    # save partial results
+    np.savetxt('data/vary_a/paras.txt', paras_record, header='a, ell, eps, acc_rate, tau_int, tau_int_err')
+    np.save('data/vary_a/x2_data_new.npy', x2_data)
+    np.save('data/vary_a/E0_data_new.npy', E0_data)
+    np.save('data/vary_a/dE_data_new.npy', dE_data)
+
     print('-'*32)
-    print('Completed %d: a=%.3f with eps=%.3f at %.2f%% and tau=%.3f'%(i, a, eps, acc_rate*100, tau_int))
+    print('Completed %d/%d: a=%.3f with acceptance rate %.2f%%'%(i+1, num, a, QHO.acc_rate*100))
     print('-'*32)
-
-
-    x2s[i], x2_errs[i] = QHO.x_moment(2,make_plot=False)
-    x2s_dis[i] = QHO.x2_dis_theo()
-
-    E0s[i], E0_errs[i] = QHO.gs_energy()
-    E0s_dis[i] = QHO.gs_energy_dis_theo()
-
-    E1_E0s[i], E1_E0_errs[i] = QHO.correlation(make_plot=False)
-    E1_E0s_dis[i] = QHO.delta_E_dis_theo()
-
-
-# store data
-np.savetxt('data/vary_a/paras', paras_record, header='a, ell, eps, ell*eps, acc_rate, tau_int, tau_int_err')
-
-np.save('data/vary_a/x2', x2s)
-np.save('data/vary_a/x2_err', x2_errs)
-np.save('data/vary_a/x2_dis', x2s_dis)
-np.save('data/vary_a/x2_cts', x2s_cts)
-
-np.save('data/vary_a/E0', E0s)
-np.save('data/vary_a/E0_err', E0_errs)
-np.save('data/vary_a/E0_dis', E0s_dis)
-np.save('data/vary_a/E0_cts', E0s_cts)
-
-np.save('data/vary_a/E1_E0', E1_E0s)
-np.save('data/vary_a/E1_E0_err', E1_E0_errs)
-np.save('data/vary_a/E1_E0_dis', E1_E0s_dis)
-np.save('data/vary_a/E1_E0_cts', E1_E0s_cts)
-
-# # load data
-# paras_record = np.loadtxt('data/vary_a/paras')
-
-# x2s = np.load('data/vary_a/x2.npy')
-# x2_errs = np.load('data/vary_a/x2_err.npy')
-# x2s_dis = np.load('data/vary_a/x2_dis.npy')
-# x2s_cts = np.load('data/vary_a/x2_cts.npy')
-
-# E0s = np.load('data/vary_a/E0.npy')
-# E0_errs = np.load('data/vary_a/E0_err.npy')
-# E0s_dis = np.load('data/vary_a/E0_dis.npy')
-# E0s_cts = np.load('data/vary_a/E0_cts.npy')
-
-# E1_E0s = np.load('data/vary_a/E1_E0.npy')
-# E1_E0_errs = np.load('data/vary_a/E1_E0_err.npy')
-# E1_E0s_dis = np.load('data/vary_a/E1_E0_dis.npy')
-# E1_E0s_cts = np.load('data/vary_a/E1_E0_cts.npy')
 
 
 # make plots 
-# simulation parameters
-fig, (ax_traj_len, ax_acc_rate, ax_tau_int) =  plt.subplots(1, 3, figsize=(20,6))
-
-ax_traj_len.scatter(a_s, paras_record[:,3], marker='x')
-ax_traj_len.plot(a_s, paras_record[:,3])
-ax_traj_len.set_xlabel('a')
-ax_traj_len.set_ylabel('$\epsilon \ell$')
-
-ax_acc_rate.scatter(a_s, paras_record[:,4]*100, marker='x')
-ax_acc_rate.plot(a_s, paras_record[:,4]*100)
-ax_acc_rate.set_xlabel('a')
-ax_acc_rate.set_ylabel('acceptance rate in \%')
-
-ax_tau_int.errorbar(a_s, paras_record[:,5], yerr=paras_record[:,6], fmt='x', capsize=2)
-ax_tau_int.set_xlabel('a')
-ax_tau_int.set_ylabel(r'$\tau_{int}$')
-
-fig.tight_layout()
-# plt.show()
-fig.savefig('plots/vary_lattice_spacing/parameters.pdf')
-
 
 # x^2 plot
 fig = plt.figure(figsize=(8,6))
-plt.errorbar(a_s, x2s, yerr=x2_errs, fmt='x', capsize=2, label='HMC')
-plt.plot(a_s, x2s_dis, label='dis theory')
-plt.plot(a_s, x2s_cts, label='cts theory')
-plt.xlabel('a')
+plt.errorbar(a_s, x2_data[0], yerr=x2_data[1], fmt='.', capsize=2, label='HMC')
+plt.plot(a_s, x2_data[2], label='lattice')
+plt.plot(a_s, x2_data[3], label='continuum')
+plt.xlabel('lattice spacing $a$')
 plt.ylabel(r'$\langle x^2 \rangle$')
-plt.legend(prop={'size': 12})
-# plt.show()
-fig.savefig('plots/vary_lattice_spacing/x2_vs_a.pdf')
+plt.legend(prop={'size': 12}, frameon=True)
+plt.show()
+# fig.savefig('plots/vary_lattice_spacing/x2_vs_a.pdf')
 
 # E0 plot
 fig = plt.figure(figsize=(8,6))
-plt.errorbar(a_s, E0s, yerr=E0_errs, fmt='x', capsize=2, label='HMC')
-plt.plot(a_s, E0s_dis, label='dis theory')
-plt.plot(a_s, E0s_cts, label='cts theory')
-plt.xlabel('a')
+plt.errorbar(a_s, E0_data[0], yerr=E0_data[1], fmt='.', capsize=2, label='HMC')
+plt.plot(a_s, E0_data[2], label='lattice')
+plt.plot(a_s, E0_data[3], label='continuum')
+plt.xlabel('lattice spacing $a$')
 plt.ylabel(r'$E_0$')
-plt.legend(prop={'size': 12})
-# plt.show()
-fig.savefig('plots/vary_lattice_spacing/E0_vs_a.pdf')
+plt.legend(prop={'size': 12}, frameon=True)
+plt.show()
+# fig.savefig('plots/vary_lattice_spacing/E0_vs_a.pdf')
 
 # E1-E0 plot
 fig = plt.figure(figsize=(8,6))
-plt.errorbar(a_s, E1_E0s, yerr=E1_E0_errs, fmt='x', capsize=2, label='HMC')
-plt.plot(a_s, E1_E0s_dis, label='dis theory')
-plt.plot(a_s, E1_E0s_cts, label='cts theory')
-plt.xlabel('a')
+plt.errorbar(a_s, dE_data[0], yerr=dE_data[1], fmt='.', capsize=2, label='HMC')
+plt.plot(a_s, dE_data[2], label='lattice')
+plt.plot(a_s, dE_data[3], label='continuum')
+plt.xlabel('lattice spacing $a$')
 plt.ylabel(r'$E_1 - E_0$')
-plt.legend(prop={'size': 12})
-# plt.show()
-fig.savefig('plots/vary_lattice_spacing/deltaE_vs_a.pdf')
+plt.legend(prop={'size': 12}, frameon=True)
+plt.show()
+# fig.savefig('plots/vary_lattice_spacing/deltaE_vs_a.pdf')

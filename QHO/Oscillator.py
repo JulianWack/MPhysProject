@@ -11,6 +11,8 @@ from alive_progress import alive_bar
 from scipy.optimize import curve_fit
 from astropy.stats import jackknife_stats
 
+import correlations
+
 
 plt.style.use('science')
 plt.rcParams.update({'font.size': 20})
@@ -229,7 +231,7 @@ class Oscillator():
 
         # initial random lattice configuration to seed HMC
         # set seed for reproducibility 
-        np.random.seed(42)
+        # np.random.seed(42)
         # x_samples[0] = np.zeros(self.N) # cold start
         x_samples[0] = np.random.uniform(-1, 1, size=self.N) # hot start
         
@@ -313,14 +315,22 @@ class Oscillator():
         '''
         xm_config_avg = np.mean(self.xs**m, axis=1) # moment in each configuration
         xm_avg = np.mean(xm_config_avg) # ensemble average
-        xm_avg_err = np.std(xm_config_avg) / np.sqrt(xm_config_avg.size)
+        xm_err_naive = np.std(xm_config_avg) / np.sqrt(xm_config_avg.size)
+
+        ts, ACF, ACF_err, IAT, IAT_err, delta_t = correlations.autocorrelator(xm_config_avg)
+        xm_avg_err =  xm_err_naive * np.sqrt(IAT)
 
         if make_plot:
-            fig = plt.figure(figsize=(8,6))
-            plt.plot(self.sweeps, xm_config_avg)
-            plt.hlines(0.5, self.sweeps[0], self.sweeps[-1], linestyles='-', color='r')
-            plt.xlabel('HMC sweep')
-            plt.ylabel(r'$\langle x^{%d} \rangle$'%m)
+            # m=2 discrete theory prediction 
+            dis_theo = self.x2_dis_theo()
+
+            fig = plt.figure(figsize=(16,5))
+            plt.plot(self.sweeps, xm_config_avg, zorder=1, label=r'HMC $\langle x^{%d} \rangle = %.3f \pm %.3f$'%(m, xm_avg, xm_avg_err))
+            plt.hlines(dis_theo, self.sweeps[0], self.sweeps[-1], linestyles='-', color='r', zorder=2, label=r'lattice $\langle x^2 \rangle = %.3f$'%dis_theo)
+            plt.xlabel('computer time')
+            plt.ylabel(r'$x^{%d}$'%m)
+            plt.legend(prop={'size':12}, frameon=True)
+            plt.xlim(left=-20, right=1000)
             plt.show()
             # fig.savefig(f'plots/x%d_vs_sweeps.pdf'%m)
 
@@ -361,14 +371,16 @@ class Oscillator():
     def gs_energy(self):
         '''Computes ground state energy and the standard error on the mean using the Quantum Virial Theorem and is thus only valid for a large lattice.
         '''
-        x_config_avg = np.mean(self.xs, axis=1) # avg position in each configuration
-        E0_config = 1/2*x_config_avg*self.dV_dx(x_config_avg) + self.V(x_config_avg)
-        self.E0_avg = np.mean(E0_config)
-        self.E0_avg_err = np.std(E0_config) / np.sqrt(E0_config.size)
-        #estimate, bias, stderr, conf_interval = jackknife_stats(data, np.mean, 0.95)
+        # specialized for harmonic oscillator with quadratic potential, allowing to use SEM correction through IAT 
+        x2_avg, x2_err = self.x_moment(2)
+        E0_avg, E0_err = self.m*self.w**2*x2_avg, self.m*self.w**2*x2_err 
+        # more general case for arbitrary potential
+        # E0 = 1/2*self.xs*self.dV_dx(self.xs) + self.V(self.xs)
+        # E0_config = np.mean(E0, axis=1)
+        # E0_avg, bias, E0_err, conf_interval = jackknife_stats(E0_config, np.mean, 0.95)
         
-        # print('GS energy = %.5f +/- %.5f '%(self.E0_avg, self.E0_avg_err))
-        return self.E0_avg, self.E0_avg_err
+        # print('GS energy = %.5f +/- %.5f '%(self.E0_avg, self.E0_err))
+        return E0_avg, E0_err
 
 
     def gs_energy_dis_theo(self):
@@ -393,47 +405,39 @@ class Oscillator():
             '''analytic wave function from continuous theory'''
             return (self.m*self.w/np.pi)**(0.25) * np.exp(-0.5*self.m*self.w*x**2)
 
-        fig, (ax_wavefunc, ax_residual) = plt.subplots(2, 1, figsize=(8,6), sharex=True, gridspec_kw={'height_ratios': [1, 0.5]})
+        fig = plt.figure(figsize=(8,6))
 
         # split data into chunks and make histogram with the same number of bins for each
         # can thus find average and std for each bin hight  
         # randomize position data first to avoid chunks representing parts of the chain (potentially bias). Note that shuffled all_data replaces old all_data
         all_data = self.xs.flatten()
         np.random.shuffle(all_data)
-        # avg number of data points per bin in each chunk: len(all_data)(Nchunks*Nbins)
-        # typically len(all_data) ~ 10^5, Nbins ~ 10^2, so Nchunks ~ 10
-        Nchunks = 10 # more chuncks lead to smaller error bars for wavefunction
-        data_chunks = np.array_split(all_data, Nchunks)  
-        bin_heights = np.full((Nchunks, Nbins), np.nan)
-        bin_mids = np.full((Nchunks, Nbins), np.nan)
+        Nsplits = 100 # more chunks lead to smaller error bars for wavefunction
+        data_chunks = np.array_split(all_data, Nsplits)  
+        bin_heights = np.full((len(data_chunks), Nbins), np.nan)
+        bin_mids = np.full((len(data_chunks), Nbins), np.nan)
 
         for i,chunk in enumerate(data_chunks):
             bin_heights[i], bin_edges = np.histogram(chunk, bins=Nbins, density=True)
             bin_mids[i] = (bin_edges[1:] + bin_edges[:-1]) / 2
-        
+
         HMC_vals = np.mean(bin_heights, axis=0)
         bin_mids_avg = np.mean(bin_mids, axis=0)
-        HMC_vals_err = 1/np.sqrt(Nchunks) * np.std(bin_heights, axis=0)
-        ax_wavefunc.errorbar(bin_mids_avg, HMC_vals, yerr=HMC_vals_err, capsize=2, label='HMC')
+        xs_for_analytic = np.linspace(bin_mids_avg[0], bin_mids_avg[-1], 200)
 
+        HMC_vals_err = 1/np.sqrt(Nsplits) * np.std(bin_heights, axis=0)
+        plt.errorbar(bin_mids_avg, HMC_vals, yerr=HMC_vals_err, zorder=3, fmt='.', capsize=2, label='HMC')
 
-        dis_vals = np.abs(discrete_func(bin_mids_avg))**2 
-        dis_line = ax_wavefunc.plot(bin_mids_avg, dis_vals, label='discrete theory')
-        ax_residual.errorbar(bin_mids_avg, HMC_vals-dis_vals, yerr=HMC_vals_err, fmt="x", capsize=2, color=dis_line[0].get_color(), label='HMC - dis theory')
+        lattice = np.abs(discrete_func(xs_for_analytic))**2 
+        plt.plot(xs_for_analytic, lattice, zorder=2, label='lattice')
         
-        cts_vals = np.abs(cts_func(bin_mids_avg))**2
-        cts_line = ax_wavefunc.plot(bin_mids_avg, cts_vals, label='continuous theory', linestyle='dashed')
-        ax_residual.errorbar(bin_mids_avg, HMC_vals-cts_vals, yerr=HMC_vals_err, fmt="x", capsize=2, color=cts_line[0].get_color(), label='HMC - cts theory')
+        cts_vals = np.abs(cts_func(xs_for_analytic))**2
+        plt.plot(xs_for_analytic, cts_vals, zorder=1, label='continuum')
 
-
-        ax_wavefunc.set_ylabel('$|\psi(x)|^2$')
-        ax_wavefunc.legend(prop={'size': 12})
-        
-        ax_residual.set_xlabel('x')
-        ax_residual.set_ylabel('residual')
-        ax_residual.legend(prop={'size': 12})
-
-        fig.tight_layout()
+        plt.xlabel('x')
+        plt.ylabel('$|\psi_0(x)|^2$')
+        plt.legend(prop={'size': 12}, frameon=True)
+                
         plt.show()
         # fig.savefig('plots/wavefunction.pdf')
 
@@ -588,9 +592,9 @@ class Oscillator():
 
         Returns
         int_autocorr_time: float
-            integrated autocorrelation time. For a correctly thinned chain should less than 1.
+            integrated autocorrelation time. 
         int_autocorr_time_err: float
-            standard error on the mean for the integrated autocorrelation time  
+            error estimate for the integrated autocorrelation time  
         '''    
         ts, ACF, ACF_err, IAT, IAT_err, delta_t = self.correlator_fast(self.xs)
         # print('Configuration correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
@@ -608,7 +612,7 @@ class Oscillator():
         return IAT, IAT_err
 
 
-    def correlation(self, make_plot=False):
+    def correlation(self, upper=None, make_plot=False):
         '''Computes the correlation function between two position variables on the lattice and plots it.
         Uses these results to estimate the energy difference between the ground state and first excited state which will be returned.
 
@@ -618,39 +622,36 @@ class Oscillator():
         delta_E_err: float, np.NaN
             error estimate from curve fitting. NaN when energy difference could not be determined due to failed curve fitting
         '''    
-        # consider all correlations on the lattice 
-        ts, corr_func, corr_func_err, IAT, IAT_err, delta_t = self.correlator_fast(self.xs.T)
+        # find 2pt correlation function and normalise
+        corr_func, corr_func_err = correlations.correlator_repeats(self.xs.T, self.xs.T) #self.correlator_fast(self.xs.T)
+        corr_func, corr_func_err = corr_func/corr_func[0], corr_func_err/corr_func[0] 
         # ts, corr_func, corr_func_err, IAT, IAT_err, delta_t = self.correlator(self.xs.T, my_upper=self.N) # uses navive correlator implementation
         # print('Position correlation function computed in %s'%(str(timedelta(seconds=delta_t))))
 
-        cut = 5 # number of points considered at most for fitting for the exponential decay of corr_func (empirically determined value) 
-        mask = corr_func[:cut]>0 # check that correlation is positive on the fitting range
-        sep = ts[:cut][mask]
-        log_rho = np.log(corr_func[:cut][mask])
-        log_rho_err = 1/corr_func[:cut][mask] * corr_func_err[:cut][mask] # error propagation 
+        def fit(d,dE):
+            return (np.cosh(dE*(d-self.N/2)) - 1) / (np.cosh(dE*self.N/2) - 1)
         
-        def lin_func(x, m, b):
-            return m*x+b
-         
-        if len(mask) == 0:
-            print('Unable to compute delta E as the autocorrelation is negative (noise dominated) for small separations.')
-            return np.NaN, np.NaN
+        sep = np.arange(self.N)
+        if upper < 2:
+            upper = 2
+        mask = sep <= upper
+        sep_fit = sep[mask]
 
-        popt, pcov = curve_fit(lin_func, sep, log_rho, sigma=log_rho_err, absolute_sigma=True) # uses chi2 minimization
-        # get dimensionless energy difference by introducing factor of a (due to computing correlation depending on index separation rather than separation on the lattice)  
-        delta_E = -popt[0] / self.a
+        popt, pcov = curve_fit(fit, sep_fit, corr_func[mask], sigma=corr_func_err[mask], absolute_sigma=True, bounds=(0,np.inf)) # uses chi2 minimization
+        # factor of a needed as separation in units of the lattice spacing while the correlation length is a physical length  
+        delta_E = popt[0] / self.a
         delta_E_err = np.sqrt(pcov[0][0]) / self.a
 
         if make_plot:
             fig = plt.figure(figsize=(8,6))
-            plt.errorbar(ts, corr_func, yerr=corr_func_err, fmt='x', capsize=2)
-            plt.plot(ts[:cut], np.exp(lin_func(ts[:cut], *popt)), label='linear fit')
+            plt.errorbar(sep, corr_func, yerr=corr_func_err, zorder=1, fmt='.', capsize=2)
+            plt.plot(sep_fit, fit(sep_fit, *popt), zorder=2, label='cosh fit')
             fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
-            plt.xlim(0,18)
+            plt.ylim(bottom=1e-3, top=2)
             plt.yscale('log') # negative vals will not be shown
-            plt.xlabel(r'lattice separation [$a$]')
-            plt.ylabel('correlation function')
-            plt.legend(prop={'size': 12})
+            plt.xlabel(r'lattice separation $d$ [$a$]')
+            plt.ylabel('correlation function $C(d)$')
+            plt.legend(prop={'size': 12}, frameon=True)
             plt.show()
             # fig.savefig('plots/correlation.pdf')
 
