@@ -22,6 +22,7 @@ def process_rawchain():
     beta_str = '1_4'
     corfunc_chain = np.load('data/corfuncs/rawchains/%s.npy'%beta_str)
     ww_cor, ww_cor_err = get_avg_error(corfunc_chain)
+    print('data shape: ', corfunc_chain.shape)
 
     # normalize and use periodic bcs to get correlation for wall separation of N to equal that of separation 0
     ww_cor, ww_cor_err = ww_cor/ww_cor[0], ww_cor_err/ww_cor[0]
@@ -110,16 +111,16 @@ def effective_mass(beta):
 
     fig = plt.figure(figsize=(8,6))
 
-    cut = 10 # adjust manually
+    cut = 200 # adjust manually
     plt.errorbar(ds_2[:cut], m_eff_cosh[:cut], yerr=m_eff_err_cosh[:cut], fmt='.', capsize=2, label='$\cosh$', c='red')
     plt.errorbar(ds_2[:cut]-0.2, m_eff_exp[:cut], yerr=m_eff_err_exp[:cut], fmt='.', capsize=2, label='$\exp$', c='b') # slightly shift data points to avoid overlapping
     # plt.ylim(bottom=0.1, top=0.183)
     # plt.ylim(bottom=0.3)
-    plt.ylim(top=0.625)
+    # plt.ylim(top=0.625)
     plt.xlabel(r'wall separation [$a$]')
     plt.ylabel('effective mass $m_{eff}$')
     fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
-    plt.legend(prop={'size': 12}, frameon=True, loc='lower left')
+    plt.legend(prop={'size': 12}, frameon=True)
     plt.show()
     # fig.savefig('plots/corfuncs/effective_mass/%s.pdf'%beta_str)
 
@@ -127,7 +128,7 @@ def effective_mass(beta):
 
 # values of beta
 # [0.6, 0.6667, 0.7333, 0.8, 0.8667, 0.9333, 1.0, 1.0667, 1.1333, 1.2, 1.2667, 1.3333, 1.4]
-# effective_mass(0.6667)
+# effective_mass(1.4)
 
 
 def adjust_fitting():
@@ -138,9 +139,9 @@ def adjust_fitting():
     def fit(d,xi):
         return (np.cosh((d-N_2)/xi) - 1) / (np.cosh(N_2/xi) - 1)
     
-    ds, cor, cor_err = np.load('data/corfuncs/beta_1_1333.npy')
+    ds, cor, cor_err = np.load('data/corfuncs/beta_1_4.npy')
 
-    fit_upper = 105 # inclusive upper bound on wall separation to include in fitting
+    fit_upper = 220 # inclusive upper bound on wall separation to include in fitting
     N_2 = ds[-1]
     
     mask = ds <= fit_upper
@@ -154,9 +155,9 @@ def adjust_fitting():
 
     fig = plt.figure(figsize=(8,6))
 
-    plt.errorbar(ds, cor, yerr=cor_err, fmt='.', capsize=2)
+    plt.errorbar(ds, cor, yerr=cor_err, fmt='.', capsize=2, zorder=1)
     ds_fit = np.linspace(0, ds[mask][-1], 500)
-    plt.plot(ds_fit, fit(ds_fit,*popt), c='g', label='$\\xi = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(cor_length, cor_length_err, reduced_chi2))
+    plt.plot(ds_fit, fit(ds_fit,*popt), c='g', zorder=2, label='$\\xi = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(cor_length, cor_length_err, reduced_chi2))
     # plt.ylim(bottom=2e-2, top=2)
     plt.yscale('log')
     plt.xlabel(r'wall separation $d$ [$a$]')

@@ -181,6 +181,39 @@ def sim_time_compare():
 # sim_time_compare()
 
 
+def coupling_exp_residual():
+    '''plots residuals of couling expansion to make error bars visible'''
+    def strong_func(b):
+        return 1/2*b + 1/6*b**3 + 1/6*b**5
+
+    def weak_func(b):
+        Q1 = 0.0958876
+        Q2 = -0.0670
+        return 1 - 3/(8*b) * (1 + 1/(16*b) + (1/64 + 3/16*Q1 + 1/8*Q2)/b**2)
+    
+    betas, e_avg, e_err = np.loadtxt('data/coupling_expansion.txt')
+
+    strong_mask = betas<0.7
+    b_strong = betas[strong_mask]
+    weak_mask = betas>0.7
+    b_weak = betas[weak_mask]
+
+    strong = strong_func(b_strong)
+    weak = weak_func(b_weak)
+
+    fig = plt.figure(figsize=(16,6))
+
+    # small beta value close to zero such that data/expansion blows up
+    plt.errorbar(b_strong, (strong-e_avg[strong_mask])/strong, yerr=e_err[strong_mask]/strong, c='b', fmt='x', capsize=2, label='(s.c. - data)/s.c.')
+    plt.errorbar(b_weak, (weak-e_avg[weak_mask])/weak, yerr=e_err[weak_mask]/weak, c='r', fmt='x', capsize=2, label='(w.c. - data)/w.c.')
+    plt.xlabel(r'$\beta$')
+    plt.ylabel('normalised residual')
+    plt.legend(prop={'size': 12}, frameon=True)
+
+    plt.show()
+
+# coupling_exp_residual()
+
 
 ### Main result plots ###
 def asym_scaling_plot():
@@ -192,15 +225,63 @@ def asym_scaling_plot():
     mass_lambda_err = mass_lambda / xi * xi_err
     cts_prediction = 32 * np.exp(np.pi/4) / np.sqrt(np.pi*np.e)
 
-    fig = plt.figure(figsize=(8,6))
-    plt.errorbar(betas, mass_lambda, yerr=mass_lambda_err, fmt='.', capsize=2)
-    plt.hlines(cts_prediction, betas[0], betas[-1], linestyles='--', color='k')
+    fig = plt.figure(figsize=(16,6))
+    plt.errorbar(betas, mass_lambda, yerr=mass_lambda_err, fmt='.', capsize=2, label='FA HMC')
+    plt.hlines(cts_prediction, betas[0], betas[-1], linestyles='--', color='k', label='continuum prediction')
     plt.xlabel(r'$\beta$')
     plt.ylabel(r'$M / \Lambda_{L,2l}$')
+    plt.legend(prop={'size':12}, frameon=True, loc='lower right')
 
     plt.show()
 
 # asym_scaling_plot()
+
+
+def asym_scaling_E_scheme():
+    ''' Compares mass over lambda inferred using the standard and by rescaling it through the internal energy density.
+    Introduced as E scheme in Rossi, Vicari (https://link.aps.org/doi/10.1103/PhysRevD.49.1621) and has shown great improvement for N>=3 SU(N)xSU(N) models.
+    
+    Below is sum data from this paper which allows to reproduce their fig.3
+    # N=3
+    # betas = np.array([0.18, 0.225, 0.25, 0.27, 0.27, 0.27, 0.29, 0.30, 0.315])
+    # E = np.array([0.74118, 0.62819, 0.55589, 0.49992, 0.50000, 0.50003, 0.45172, 0.43111, 0.40400])
+    # xi = np.array([1.003, 1.87, 3.027, 4.79, 4.78, 4.81, 7.99, 10.41, 15.5])
+    '''
+    def loop(x, a):
+        return np.exp(a*np.pi*x) / np.sqrt(a*np.pi*x)
+
+    N = 2 # SU(N) group order
+    data = np.loadtxt('data/corlen_beta.txt')
+    _, betas, xi, xi_err, _ = data
+    _, e, e_err = np.loadtxt('data/E_scheme.txt')
+    E = 1-e
+    E_err = e_err
+
+    # standard coupling
+    ML = 1/xi * loop(betas, 2)
+    ML_err = ML / xi * xi_err
+
+    # rescaled coupling
+    betas_E = (N**2-1)/(8*N**2*E)
+    betas_E_err = betas_E * E_err/E
+    ML_E = 1/xi * np.exp(np.pi*(N**2-2)/(4*N**2)) * loop(betas_E, 8)
+    ML_E_err = ML_E/xi * xi_err + ML_E*8*np.pi*(1-1/(16*np.pi*betas_E))*betas_E_err # ignores error from beta_E as E small and E_err of order 1e-4
+
+    cts_prediction = 32 * np.exp(np.pi/4) / np.sqrt(np.pi*np.e)
+
+    fig = plt.figure(figsize=(16,6))
+
+    plt.errorbar(betas, ML, yerr=ML_err, c='b', fmt='.', capsize=2, label='standard coupling')
+    plt.errorbar(betas, ML_E, yerr=ML_E_err, c='r', fmt='.', capsize=2, label='rescaled coupling')
+    plt.hlines(cts_prediction, betas[0], betas[-1], linestyles='--', color='k', label='continuum prediction')
+    # plt.ylim(bottom=20, top=100)
+    plt.xlabel(r'$\beta$')
+    plt.ylabel(r'$M / \Lambda_{L,2l}$')
+    plt.legend(prop={'size': 12}, frameon=True, loc='lower right')
+
+    plt.show()
+
+# asym_scaling_E_scheme()
 
 
 def critslowing_plot():
@@ -231,7 +312,7 @@ def critslowing_plot():
 
         return popt, z, z_err
 
-    n = 10 # only needed when not all values for xi have been computed
+    n = 13
     IATs, IATs_err = np.zeros((2,n)), np.zeros((2,n))
     chis, chis_err = np.zeros((2,n)), np.zeros((2,n))
     times = np.zeros((2,n))
