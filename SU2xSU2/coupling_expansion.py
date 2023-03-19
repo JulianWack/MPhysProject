@@ -21,17 +21,22 @@ def internal_energy_coupling_exp(betas):
     betas: (n,) array
         value of beta to run simulations for
     '''
+    # Ns = [40, 40, 64, 64, 64, 96, 96, 160, 160, 224, 400, 512, 700]
+    # betas = np.array([0.6, 0.6667, 0.7333, 0.8, 0.8667, 0.9333, 1.0, 1.0667, 1.1333, 1.2, 1.2667, 1.3333, 1.4])
+    Ns = np.full(betas.shape, 16, dtype=int)
+
     e_avg, e_err = np.empty((2, len(betas)))
 
     t1 = time.time()
     prev_ell, prev_eps = 2, 1/2  # calibration guesses, suitable for small beta. Get updated to previous simulation during loop over betas
     for i, beta in enumerate(betas):
         beta_str = str(np.round(beta, 4)).replace('.', '_')
-        model_paras = {'N':16, 'a':1, 'ell':prev_ell, 'eps':prev_eps, 'beta':beta}
+        model_paras = {'N':Ns[i], 'a':1, 'ell':prev_ell, 'eps':prev_eps, 'beta':beta}
         paras_calibrated = calibrate(model_paras, accel=True)
         prev_ell, prev_eps = paras_calibrated['ell'], paras_calibrated['eps']
 
         model = SU2xSU2(**paras_calibrated)
+        # file_path = 'data/energy_density_E_scheme/beta_'+beta_str
         file_path = 'data/energy_density/beta_'+beta_str
         sim_paras = {'M':5000, 'thin_freq':1, 'burnin_frac':0.1, 'accel':True, 'measurements':[model.internal_energy_density], 'chain_paths':[file_path]}
         model.run_HMC(**sim_paras) 
@@ -50,8 +55,7 @@ def internal_energy_coupling_exp(betas):
     print('Total time: %s'%(str(timedelta(seconds=t2-t1))))
 
 
-    # make plot
-    # strong and weak coupling expansions
+    # make strong and weak coupling expansion plot
     b_s = np.linspace(0,1)
     strong = 1/2*b_s + 1/6*b_s**3 + 1/6*b_s**5
 
@@ -60,13 +64,13 @@ def internal_energy_coupling_exp(betas):
     b_w = np.linspace(0.6, 4)
     weak = 1 - 3/(8*b_w) * (1 + 1/(16*b_w) + (1/64 + 3/16*Q1 + 1/8*Q2)/b_w**2)
 
-    fig = plt.figure(figsize=(8,6))
+    fig = plt.figure(figsize=(16,6))
 
-    plt.errorbar(betas, e_avg, yerr=e_err, fmt='x', capsize=2, label='HMC')
-    plt.plot(b_s, strong, label='s.c.')
-    plt.plot(b_w, weak, label='w.c.')
+    plt.errorbar(betas, e_avg, yerr=e_err, fmt='x', capsize=2, label='FA HMC')
+    plt.plot(b_s, strong, c='b', label='s.c.')
+    plt.plot(b_w, weak, c='r', label='w.c.')
     plt.xlabel(r'$\beta$')
-    plt.ylabel('internal energy density')
+    plt.ylabel('internal energy density $e$')
     plt.legend(prop={'size': 12}, frameon=True)
 
     plt.show()
@@ -74,5 +78,8 @@ def internal_energy_coupling_exp(betas):
     return 
     
 
-betas = np.linspace(0.01, 4, 20)
+# betas = np.linspace(0.01, 4, 20)
+betas = np.array([0.01, 0.22, 0.43, 0.52, 0.61, 0.7, 0.79, 0.88, 0.97, 1.06, 1.27, 1.48, 1.69, 1.9,  2.11, 2.32, 2.53, 2.74, 2.95, 3.16, 3.37, 3.58, 3.79, 4])
+
+# betas = np.array([0.6, 0.6667, 0.7333, 0.8, 0.8667, 0.9333, 1.0, 1.0667, 1.1333, 1.2, 1.2667, 1.3333, 1.4])
 internal_energy_coupling_exp(betas)
