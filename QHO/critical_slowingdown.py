@@ -149,15 +149,20 @@ def critslowing_plot(n):
 
     # cost function plot
     cost_funcs = times/acc_rates * np.sqrt(IATs)
+    ratio = cost_funcs[0]/cost_funcs[1]
+    popt, _ = curve_fit(linear_func, np.log(a_s), np.log(ratio))
+    fit_ratio = np.exp( linear_func(np.log(a_s), *popt) )
+
     fig = plt.figure(figsize=(8,6))
 
-    plt.scatter(a_s, cost_funcs[0]/cost_funcs[1], marker='x')
+    plt.scatter(a_s, ratio, marker='x')
+    plt.plot(a_s, fit_ratio, c='r', label=r'fitted power law $\sim a^{%.3f}$'%popt[0])
     plt.xlabel(r'lattice spacing $a$')
     plt.ylabel(r'cost function ratio HMC/FA HMC')
     plt.xscale('log')
     plt.yscale('log')
+    plt.legend(prop={'size': 12}, frameon=True)
     plt.show()
-
 
 
 x_IAT_scaling(15)

@@ -215,6 +215,30 @@ def coupling_exp_residual():
 # coupling_exp_residual()
 
 
+def chi_speed():
+    '''Makes ratio plot of CPU time needed to compute the susceptibility via a double sum and the cross correlation theorem'''
+    L, CC, DS = np.loadtxt('data\chi_speed.txt')
+
+    fig = plt.figure(figsize=(16,6))
+
+    # plt.scatter(L, DS/CC, marker='x')
+    plt.plot(L, DS, c='b', label='naive sum')
+    plt.plot(L, CC, c='r', label='FFT approach')
+
+    plt.xlabel('lattice size $L$')
+    plt.ylabel('CPU time [sec]')
+    # plt.ylabel('CPU time ratio double sum / cross correlation')
+    plt.yscale('log')
+    ax = plt.gca()
+    ax.set_yticks(np.logspace(-3,4,8))
+    ax.get_xaxis().get_major_formatter().labelOnlyBase = False
+    plt.legend(prop={'size':12}, frameon=True)
+
+    plt.show()
+
+# chi_speed()
+
+
 ### Main result plots ###
 def asym_scaling_plot():
     '''Makes asymptotic scaling plot'''
@@ -312,13 +336,13 @@ def critslowing_plot():
 
         return popt, z, z_err
 
-    n = 13
+    n = 13 # number of xi measurements at different beta
     IATs, IATs_err = np.zeros((2,n)), np.zeros((2,n))
     chis, chis_err = np.zeros((2,n)), np.zeros((2,n))
-    times = np.zeros((2,n))
+    times, acc = np.zeros((2,n)), np.zeros((2,n))
 
-    _, _,  IATs[0], IATs_err[0], chis[0], chis_err[0], times[0] = np.loadtxt('data/slowdown/unaccel.txt')
-    _, _, IATs[1], IATs_err[1], chis[1], chis_err[1], times[1] = np.loadtxt('data/slowdown/accel.txt')
+    _, _,  IATs[0], IATs_err[0], chis[0], chis_err[0], times[0], acc[0] = np.loadtxt('data/slowdown/unaccel.txt')
+    _, _, IATs[1], IATs_err[1], chis[1], chis_err[1], times[1], acc[1] = np.loadtxt('data/slowdown/accel.txt')
 
     xis = np.loadtxt('data/corlen_beta.txt')[2,:n]
 
@@ -334,22 +358,58 @@ def critslowing_plot():
         red_chi2s[k] = np.sum((r/IATs[k][:cut])**2) / (fits[k].size - 2) # dof = number of observations - number of fitted parameters
 
 
-    fig = plt.figure(figsize=(8,6))
+    # # critical slowing down plot
+    # fig = plt.figure(figsize=(16,6))
 
-    # move one data serires slightly for better visibility
-    # plt.errorbar(xis, IATs[0], yerr=IATs_err[0], c='g', fmt='.', capsize=2, label='HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[0],zs_err[0], red_chi2s[0]))
-    # plt.errorbar(xis+0.5, IATs[0], yerr=IATs_err[0], c='g', fmt='.', capsize=2)
+    # # move one data serires slightly for better visibility
+    # # plt.errorbar(xis, IATs[0], yerr=IATs_err[0], c='g', fmt='.', capsize=2, label='HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[0],zs_err[0], red_chi2s[0]))
+    # # plt.errorbar(xis+0.5, IATs[0], yerr=IATs_err[0], c='g', fmt='.', capsize=2)
     
-    plt.errorbar(xis, IATs[0], yerr=IATs_err[0], c='b', fmt='.', capsize=2, label='HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[0],zs_err[0], red_chi2s[0]))
-    plt.plot(xis[:cut], fits[0], c='b')
-    plt.errorbar(xis, IATs[1], yerr=IATs_err[1], c='r', fmt='.', capsize=2, label='FA HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[1],zs_err[1], red_chi2s[1]))
-    plt.plot(xis[:cut], fits[1], c='r')
+    # # plt.errorbar(xis, IATs[0], yerr=IATs_err[0], c='b', fmt='.', capsize=2, label='HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[0],zs_err[0], red_chi2s[0]))
+    # plt.errorbar(xis, IATs[0], yerr=IATs_err[0], c='b', fmt='.', capsize=2, label='HMC $z = %.3f \pm %.3f$'%(zs[0],zs_err[0]))
+    # plt.plot(xis[:cut], fits[0], c='b')
+    # # plt.errorbar(xis, IATs[1], yerr=IATs_err[1], c='r', fmt='.', capsize=2, label='FA HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[1],zs_err[1], red_chi2s[1]))
+    # plt.errorbar(xis, IATs[1], yerr=IATs_err[1], c='r', fmt='.', capsize=2, label='FA HMC $z = %.3f \pm %.3f$'%(zs[1],zs_err[1]))
+    # plt.plot(xis[:cut], fits[1], c='r')
 
-    plt.xscale('log')
-    plt.yscale('log')
+    # # add data points to test finite size effects
+    # # fs_data = np.loadtxt('data/mixed_data/sd_finite_size_test.txt')
+    # # plt.errorbar(xis[-3:], fs_data[3], yerr=fs_data[4], c='b', alpha=0.25, fmt='.', capsize=2, label='HMC half the lattice size')
+
+
+    # # plt.xscale('log')
+    # # set x ticks manually
+    # ax = plt.gca()
+    # ax.set_xscale('log')
+    # ax.set_xticks([2, 5, 10, 20, 50, 100])
+    # ax.get_xaxis().set_major_formatter(mpl.ticker.ScalarFormatter())
+    # plt.yscale('log')
+    # plt.xlabel(r'correlation length $\xi$ [$a$]')
+    # plt.ylabel(r'autocorrelation time $\tau_{\chi}$')
+    # plt.legend(prop={'size': 12}, frameon=True)
+    # plt.show()
+
+
+    # cost function plot
+    cost_funcs = times/acc * np.sqrt(IATs)
+    ratio = cost_funcs[0]/cost_funcs[1]
+    popt, _ = curve_fit(linear_func, np.log(xis), np.log(ratio))
+    fit_ratio = np.exp( linear_func(np.log(xis), *popt) )
+
+    fig = plt.figure(figsize=(16,6))
+
+    plt.scatter(xis, ratio, marker='x')
+    plt.plot(xis, fit_ratio, c='r', label=r'fitted power law $\sim \xi^{%.3f}$'%popt[0])
     plt.xlabel(r'correlation length $\xi$ [$a$]')
-    plt.ylabel(r'autocorrelation time $\tau_{\chi}$')
+    plt.ylabel(r'cost function ratio HMC/FA HMC')
+    # plt.xscale('log')
+    # set x ticks manually
+    ax = plt.gca()
+    ax.set_xscale('log')
+    ax.set_xticks([2, 5, 10, 20, 50, 100])
+    ax.get_xaxis().set_major_formatter(mpl.ticker.ScalarFormatter())
+    plt.yscale('log')
     plt.legend(prop={'size': 12}, frameon=True)
     plt.show()
 
-# critslowing_plot()
+critslowing_plot()

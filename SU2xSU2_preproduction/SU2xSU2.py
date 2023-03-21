@@ -441,15 +441,20 @@ class SU2xSU2():
         two consecutive configurations in the final (thinned and burn in rejected) chain. If the chain has thermalised successfully, the average will be close to 1.
         Optionally, plot exp(-dH) against HMC sweeps i.e. MC time.
         '''
-        exp__dH_avg, _, exp__dH_err, _ = jackknife_stats(np.exp(-self.delta_Hs), np.mean, 0.95)
+        # exp__dH_avg, _, exp__dH_err, _ = jackknife_stats(np.exp(-self.delta_Hs), np.mean, 0.95)
+        data = np.exp(-self.delta_Hs)
+        exp__dH_avg = np.mean(data)
+        exp__dH_err_naive = np.mean(np.std(-self.delta_Hs)) / np.sqrt(self.delta_Hs.size)
+        _, _, _, IAT, _, _ = correlations.autocorrelator(data)
+        exp__dH_err = exp__dH_err_naive * np.sqrt(IAT)
 
         if make_plot:
             fig = plt.figure(figsize=(8,6))
             plt.scatter(self.sweeps, np.exp(-self.delta_Hs), s=2) 
             plt.hlines(exp__dH_avg, self.sweeps[0], self.sweeps[-1], linestyles='-', color='r', label=r'$\langle e^{-\Delta H} \rangle = %.3f \pm %.3f$'%(exp__dH_avg, exp__dH_err))
-            plt.xlabel('HMC sweep')
+            plt.xlabel('computer time')
             plt.ylabel('$e^{-\Delta H}$')
-            plt.legend(prop={'size': 12})
+            plt.legend(prop={'size': 12}, frameon=True)
             plt.show()
             # fig.savefig('plots/deltaH_vs_sweeps.pdf')
 

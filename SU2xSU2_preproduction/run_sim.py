@@ -4,7 +4,7 @@ from calibrate_paras import calibrate
 
 # manual parameters
 model = SU2xSU2(N=16, a=1, ell=4, eps=1/4, beta=1)
-model.run_HMC(200, 1, 0, accel=True, store_data=False) 
+model.run_HMC(2000, 1, 0.25, accel=True, store_data=False) 
 
 # automatic calibration
 # model_paras = {'N':400, 'a':1, 'ell':20, 'eps':1/20, 'beta':1.3333}
@@ -28,8 +28,8 @@ model.run_HMC(200, 1, 0, accel=True, store_data=False)
 # model.M = model.configs.shape[0]
 
 
-# exp__dH_avg , exp__dH_err = model.exp__dH(make_plot=True)
-# print('<exp(-dH)> = %.5f +/- %.5f \n'%(exp__dH_avg, exp__dH_err))
+exp__dH_avg , exp__dH_err = model.exp__dH(make_plot=True)
+print('<exp(-dH)> = %.5f +/- %.5f \n'%(exp__dH_avg, exp__dH_err))
 
 # m_avg , m_err = model.order_parameter(make_plot=True)
 # for i,(avg, err) in enumerate(zip(m_avg, m_err)):

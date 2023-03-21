@@ -56,7 +56,7 @@ def chi_IAT_scaling():
     n = len(betas)
     IATs, IATs_err = np.zeros((2,n)), np.zeros((2,n))
     chis, chis_err = np.zeros((2,n)), np.zeros((2,n))
-    times = np.zeros((2,n))
+    times, acc = np.zeros((2,n)), np.zeros((2,n))
 
     chain_path = ['data/slowdown/rawchains/unaccel/','data/slowdown/rawchains/accel/'] # location to store chains. Needed dirs automatically created in SU2xSU2 class
     file_path = ['data/slowdown/unaccel.txt', 'data/slowdown/accel.txt'] # location for final results depending on use of acceleration
@@ -65,7 +65,7 @@ def chi_IAT_scaling():
         dir_path = os.path.dirname(path)
         os.makedirs(dir_path, exist_ok=True)
 
-    description = 'dynamics with %d total measurements of susceptibility \nN, beta, IAT and error, chi and error, simulation time [sec]'%M
+    description = 'dynamics with %d total measurements of susceptibility \nN, beta, IAT and error, chi and error, simulation time [sec], acceptance rate'%M
     des_str = ['Unaccelerated '+description, 'Accelerated '+description]
 
     prev_ell, prev_eps = [4,4], [1/4, 1/4] 
@@ -84,9 +84,9 @@ def chi_IAT_scaling():
             # get ensemble average and IAT of susceptibility
             data = np.load(rawchain_path+'.npy') # raw chain of susceptibility
             chis[k,i], chis_err[k,i], IATs[k,i], IATs_err[k,i] = get_avg_error(data, get_IAT=True)
-            times[k,i] = model.time
+            times[k,i], acc[k,i] = model.time, model.acc_rate
 
-            np.savetxt(file_path[k], np.row_stack((Ns, betas, IATs[k], IATs_err[k], chis[k], chis_err[k], times[k])), header=des_str[k])
+            np.savetxt(file_path[k], np.row_stack((Ns, betas, IATs[k], IATs_err[k], chis[k], chis_err[k], times[k], acc[k])), header=des_str[k])
         print('-'*32)
         print('Completed %d / %d: beta=%.3f'%(i+1, len(betas), beta))
         print('-'*32)
@@ -105,6 +105,7 @@ def chi_IAT_scaling():
         red_chi2s[k] = np.sum((r/IATs[k][:cut])**2) / (fits[k].size - 2) # dof = number of observations - number of fitted parameters
 
 
+    # critical slowing down plot
     fig = plt.figure(figsize=(8,6))
    
     plt.errorbar(xis, IATs[0], yerr=IATs_err[0], c='b', fmt='.', capsize=2, label='HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[0],zs_err[0], red_chi2s[0]))
@@ -120,5 +121,24 @@ def chi_IAT_scaling():
 
     # plt.show()
     fig.savefig('plots/crit_slowing.pdf')
+
+
+    # cost function plot
+    fig = plt.figure(figsize=(16,6))
+
+    cost_funcs = times/acc * np.sqrt(IATs)
+    ratio = cost_funcs[0]/cost_funcs[1]
+    popt, _ = curve_fit(linear_func, np.log(xis), np.log(ratio))
+    fit_ratio = np.exp( linear_func(np.log(xis), *popt) )
+
+    plt.scatter(xis, ratio, marker='x')
+    plt.plot(xis, fit_ratio, c='r', label=r'fitted power law $\sim \xi^{%.3f}$'%popt[0])
+    plt.xlabel(r'correlation length $\xi$ [$a$]')
+    plt.ylabel(r'cost function ratio HMC/FA HMC')
+    plt.xscale('log')
+    plt.yscale('log')
+    plt.legend(prop={'size': 12}, frameon=True)
+    # plt.show()
+    fig.savefig('plots/cost_function.pdf')
 
 chi_IAT_scaling()

@@ -20,13 +20,13 @@ def grid_search():
     motivating the searched range and the normalization of the cost function.
     '''
     beta = 1.1333  
-    N, a = 128, 1
-    xi = 20
+    N, a = 160, 1
+    xi = 16.928
 
     n = 11 # total number of masses for which cost function is computed
     masses = np.zeros(n)
     masses[:-1] = np.linspace(1/100, 1/10, n-1)
-    masses[-1] = 0.02872 # minimum form coarser search # 1/xi
+    masses[-1] = 1/xi
     times, acc_rates, chi_IATs, chi_IATs_err = np.zeros((4,n))
     cost_func, cost_func_err = np.zeros((2,n))
 
@@ -38,24 +38,26 @@ def grid_search():
 
         chi_IATs[i], chi_IATs_err[i], _, _ = model.susceptibility_IAT()
         times[i], acc_rates[i] = model.time, model.acc_rate
-        cost_func[i] = times[i] / acc_rates[i] * chi_IATs[i]
-        cost_func_err[i] = times[i] / acc_rates[i] * chi_IATs_err[i]
+        cost_func[i] = times[i] / acc_rates[i] * np.sqrt(chi_IATs[i])
+        cost_func_err[i] = cost_func[i] * 1/2 * chi_IATs_err[i]/chi_IATs[i]
 
-        header_str = 'acceleration masses, cost function and its error, simulation time [sec], acceptance rate, susceptibility IAT and its error'
+        header_str = 'acceleration masses, non-normalised cost function and its error, simulation time [sec], acceptance rate, susceptibility IAT and its error'
         np.savetxt('data/accel_mass_search.txt', np.row_stack((masses, cost_func, cost_func_err, times, acc_rates, chi_IATs, chi_IATs_err)), header=header_str)
         print('%d/%d done'%(i+1,n))
 
     idx = np.argmin(cost_func)
     print('Value of mass parameter yielding most efficient acceleration: M = %.5f'%masses[idx])
-    min_cost = cost_func[idx]
-    cost_func /= min_cost
-    cost_func_err /= min_cost
+    # normalise to M=1/xi
+    cost_func /= cost_func[-1]
+    cost_func_err /= cost_func[-1] 
 
     fig = plt.figure(figsize=(8,6))
 
-    plt.errorbar(masses, cost_func, yerr=cost_func_err, fmt='.', capsize=2)
-    plt.xlabel('mass parameter $M$')
-    plt.ylabel('cost function $L(M)/L(M^*)$')
+    plt.errorbar(masses[:-1], cost_func[:-1], yerr=cost_func_err[:-1], fmt='.', capsize=2)
+    plt.errorbar(masses[-1], cost_func[-1], yerr=cost_func_err[-1], c='r', fmt='.', capsize=2, label=r'$M=1/\xi$')
+    plt.xlabel('acceleration mass $M$')
+    plt.ylabel(r'cost function normalised to $M=1/\xi$')
+    plt.legend(prop={'size':12}, frameon=True)
     # plt.yscale('log')
     # plt.show()
     fig.savefig('plots/mass_parameter.pdf')
