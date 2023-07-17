@@ -10,9 +10,11 @@ from SU2xSU2 import SU2xSU2, get_avg_error, corlength
 from calibrate_paras import calibrate
 
 plt.style.use('science')
-plt.rcParams.update({'font.size': 20})
+plt.rcParams.update({'font.size': 30})
 # plt.rcParams.update({'text.usetex': False}) # faster rendering
 mpl.rcParams['axes.prop_cycle'] = cycler(color=['k', 'g', 'b', 'r'])
+mpl.rcParams['xtick.major.size'], mpl.rcParams['ytick.major.size'] = 10, 10
+mpl.rcParams['xtick.minor.size'], mpl.rcParams['ytick.minor.size'] = 5, 5
 
 
 def run_sim():
@@ -181,6 +183,33 @@ def sim_time_compare():
 # sim_time_compare()
 
 
+def couping_expansion():
+    betas, e_avg, e_err = np.loadtxt('data/coupling_expansion.txt')
+
+    # make strong and weak coupling expansion plot
+    b_s = np.linspace(0,1)
+    strong = 1/2*b_s + 1/6*b_s**3 + 1/6*b_s**5
+
+    Q1 = 0.0958876
+    Q2 = -0.0670
+    b_w = np.linspace(0.6, 4)
+    weak = 1 - 3/(8*b_w) * (1 + 1/(16*b_w) + (1/64 + 3/16*Q1 + 1/8*Q2)/b_w**2)
+
+    fig = plt.figure(figsize=(16,9))
+
+    plt.errorbar(betas, e_avg, yerr=e_err*10, fmt='.', capsize=2, label='FA HMC')
+    plt.plot(b_s, strong, c='b', label='strong coupling')
+    plt.plot(b_w, weak, c='r', label='weak coupling')
+    plt.xlabel(r'$\beta$')
+    plt.ylabel('internal energy density $e$')
+    plt.legend(prop={'size': 22}, frameon=True, loc='lower right')
+
+    plt.show()
+    # fig.savefig('plots/coupling_expansion.pdf')
+
+# couping_expansion()
+
+
 def coupling_exp_residual():
     '''plots residuals of couling expansion to make error bars visible'''
     def strong_func(b):
@@ -239,22 +268,105 @@ def chi_speed():
 # chi_speed()
 
 
+def accelmass_search():
+    # load data
+    masses, cost_func, cost_func_err, times, acc_rates, chi_IATs, chi_IATs_err = np.loadtxt('../SU2xSU2_preproduction/data/mass_parameter.txt')
+
+    # normalise to M=1/xi
+    cost_func_normed = cost_func/cost_func[-1]
+    cost_func_normed_err = cost_func_err/cost_func[-1] 
+
+    fig = plt.figure(figsize=(16,9))
+
+    plt.errorbar(masses[:-1], cost_func_normed[:-1], yerr=cost_func_normed_err[:-1], fmt='.', capsize=2)
+    plt.errorbar(masses[-1], cost_func_normed[-1], yerr=cost_func_normed_err[-1], c='r', fmt='.', capsize=2, label=r'$M=1/\xi$')
+    plt.xlabel('acceleration mass $M$')
+    plt.ylabel(r'cost function normalised to $M=1/\xi$')
+    plt.legend(prop={'size':22}, frameon=True)
+    # plt.yscale('log')
+    plt.show()
+
+# accelmass_search()
+
+
+
 ### Main result plots ###
+def correlation_func_plot():
+    '''Allows manual adjustment of fitting the correlation length to the processed correlation function data (normalized and mirror averaged).
+    A plot with the new fitting is produced and the inferred correlation length, its error and the associated chi2 are printed.
+    These can then be manually added to the data/corlen_data.txt file.
+    '''
+    def fit(d,xi):
+        return (np.cosh((d-N_2)/xi) - 1) / (np.cosh(N_2/xi) - 1)
+    
+    ds, cor, cor_err = np.load('data/corfuncs/beta_0_8667.npy')
+
+    fit_upper = 27 # inclusive upper bound on wall separation to include in fitting
+    N_2 = ds[-1]
+    
+    mask = ds <= fit_upper
+    # mask = cor > 0
+    popt, pcov = curve_fit(fit, ds[mask], cor[mask], sigma=cor_err[mask], absolute_sigma=True)
+    cor_length = popt[0] # in units of lattice spacing
+    cor_length_err = np.sqrt(pcov[0][0])
+
+    r = cor[mask] - fit(ds[mask], *popt)
+    reduced_chi2 = np.sum((r/cor_err[mask])**2) / (mask.size - 1) # dof = number of observations - number of fitted parameters
+
+    fig = plt.figure(figsize=(16,9))
+
+    plt.errorbar(ds, cor, yerr=cor_err, fmt='.', capsize=2, zorder=1)
+    ds_fit = np.linspace(0, ds[mask][-1], 500)
+    plt.plot(ds_fit, fit(ds_fit,*popt), c='g', zorder=2, label='$\\xi = %.3f \pm %.3f$\n $\chi_r^2 = %.2f$'%(cor_length, cor_length_err, reduced_chi2))
+    plt.ylim(bottom=2e-4, top=2)
+    plt.xlim(right=33)
+    plt.yscale('log')
+    plt.xlabel(r'wall separation $d$ [$a$]')
+    plt.ylabel('wall wall correlation $C_{ww}(d)$')
+    plt.legend(prop={'size':22}, frameon=True, loc='upper right') # location to not conflict with error bars
+    fig.gca().xaxis.set_major_locator(MaxNLocator(integer=True)) # set major ticks at integer positions only
+    plt.show()
+
+    print('corlen: %.18E \ncorlen_err: %.18E \nchi2: %.18E'%(cor_length, cor_length_err, reduced_chi2))
+    
+# correlation_func_plot()
+
+
 def asym_scaling_plot():
-    '''Makes asymptotic scaling plot'''
+    '''Makes asymptotic scaling plot using the beta function at either 2 or 3 loop accuracy.'''
     data = np.loadtxt('data/corlen_beta.txt')
     _, betas, xi, xi_err, _ = data
 
-    mass_lambda = 1/xi * np.exp(2*np.pi*betas) / np.sqrt(2*np.pi*betas)
+    def Lambda(betas, loops=3):
+        '''Returns the lattice spacing a times the Lambda parameter at 2 or 3 loop accuracy in the lattice scheme.'''
+        N = 2
+        b0 = N / (8*np.pi)
+        b1 = N**2 / (128*np.pi**2) 
+
+        # 2 loop result
+        res = (2*np.pi*betas)**(1/2) * np.exp(-2*np.pi*betas)
+        if loops == 2:
+            return res
+
+        # 3 loop correction
+        G1 = 0.04616363
+        b2 = 1/(2*np.pi)**3 * (N**3)/128 * ( 1 + np.pi*(N**2 - 2)/(2*N**2) - np.pi**2*((2*N**4-13*N**2+18)/(6*N**4) + 4*G1) )
+        correction =  (b1**2 - b0*b2)/(N*b0**3)*4/betas
+        res = res * (1 + correction)
+
+        return res
+
+    mass_lambda = 1/xi * 1/Lambda(betas)
     mass_lambda_err = mass_lambda / xi * xi_err
+
     cts_prediction = 32 * np.exp(np.pi/4) / np.sqrt(np.pi*np.e)
 
-    fig = plt.figure(figsize=(16,6))
+    fig = plt.figure(figsize=(16,9))
     plt.errorbar(betas, mass_lambda, yerr=mass_lambda_err, fmt='.', capsize=2, label='FA HMC')
     plt.hlines(cts_prediction, betas[0], betas[-1], linestyles='--', color='k', label='continuum prediction')
     plt.xlabel(r'$\beta$')
-    plt.ylabel(r'$M / \Lambda_{L,2l}$')
-    plt.legend(prop={'size':12}, frameon=True, loc='lower right')
+    plt.ylabel(r'$m / \Lambda_{L}$')
+    plt.legend(prop={'size':22}, frameon=True, loc='lower right')
 
     plt.show()
 
@@ -271,9 +383,6 @@ def asym_scaling_E_scheme():
     # E = np.array([0.74118, 0.62819, 0.55589, 0.49992, 0.50000, 0.50003, 0.45172, 0.43111, 0.40400])
     # xi = np.array([1.003, 1.87, 3.027, 4.79, 4.78, 4.81, 7.99, 10.41, 15.5])
     '''
-    def loop(x, a):
-        return np.exp(a*np.pi*x) / np.sqrt(a*np.pi*x)
-
     N = 2 # SU(N) group order
     data = np.loadtxt('data/corlen_beta.txt')
     _, betas, xi, xi_err, _ = data
@@ -281,19 +390,42 @@ def asym_scaling_E_scheme():
     E = 1-e
     E_err = e_err
 
+    def Lambda(betas, n, loops=3):
+        '''Returns the lattice spacing a times the Lambda parameter at 2 or 3 loop accuracy in the lattice scheme.
+        Due to the different normalization of the action, a parameter n is needed such that for
+        standard coupling: n = 2 
+        e scheme: n = 8
+        '''
+        N = 2
+        b0 = N / (8*np.pi)
+        b1 = N**2 / (128*np.pi**2) 
+
+        # 2 loop result
+        res = (n*np.pi*betas)**(1/2) * np.exp(-n*np.pi*betas)
+        if loops == 2:
+            return res
+
+        # 3 loop correction
+        G1 = 0.04616363
+        b2 = 1/(2*np.pi)**3 * (N**3)/128 * ( 1 + np.pi*(N**2 - 2)/(2*N**2) - np.pi**2*((2*N**4-13*N**2+18)/(6*N**4) + 4*G1) )
+        correction =  (b1**2 - b0*b2)/(N*b0**3)* (8/n)/betas
+        res = res * (1 + correction)
+
+        return res
+    
     # standard coupling
-    ML = 1/xi * loop(betas, 2)
+    ML = 1/xi * 1/Lambda(betas, 2)
     ML_err = ML / xi * xi_err
 
     # rescaled coupling
     betas_E = (N**2-1)/(8*N**2*E)
     betas_E_err = betas_E * E_err/E
-    ML_E = 1/xi * np.exp(np.pi*(N**2-2)/(4*N**2)) * loop(betas_E, 8)
+    ML_E = 1/xi * np.exp(np.pi*(N**2-2)/(4*N**2)) * 1/Lambda(betas_E, 8)
     ML_E_err = ML_E/xi * xi_err + ML_E*8*np.pi*(1-1/(16*np.pi*betas_E))*betas_E_err # ignores error from beta_E as E small and E_err of order 1e-4
 
     cts_prediction = 32 * np.exp(np.pi/4) / np.sqrt(np.pi*np.e)
 
-    fig = plt.figure(figsize=(16,6))
+    fig = plt.figure(figsize=(16,9))
 
     plt.errorbar(betas, ML, yerr=ML_err, c='b', fmt='.', capsize=2, label='standard coupling')
     plt.errorbar(betas, ML_E, yerr=ML_E_err, c='r', fmt='.', capsize=2, label='rescaled coupling')
@@ -301,7 +433,7 @@ def asym_scaling_E_scheme():
     # plt.ylim(bottom=20, top=100)
     plt.xlabel(r'$\beta$')
     plt.ylabel(r'$M / \Lambda_{L,2l}$')
-    plt.legend(prop={'size': 12}, frameon=True, loc='lower right')
+    plt.legend(prop={'size': 18}, frameon=True, loc='lower right')
 
     plt.show()
 
@@ -359,35 +491,35 @@ def critslowing_plot():
 
 
     # # critical slowing down plot
-    # fig = plt.figure(figsize=(16,6))
+    fig = plt.figure(figsize=(16,9))
 
     # # move one data serires slightly for better visibility
     # # plt.errorbar(xis, IATs[0], yerr=IATs_err[0], c='g', fmt='.', capsize=2, label='HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[0],zs_err[0], red_chi2s[0]))
     # # plt.errorbar(xis+0.5, IATs[0], yerr=IATs_err[0], c='g', fmt='.', capsize=2)
     
-    # # plt.errorbar(xis, IATs[0], yerr=IATs_err[0], c='b', fmt='.', capsize=2, label='HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[0],zs_err[0], red_chi2s[0]))
-    # plt.errorbar(xis, IATs[0], yerr=IATs_err[0], c='b', fmt='.', capsize=2, label='HMC $z = %.3f \pm %.3f$'%(zs[0],zs_err[0]))
-    # plt.plot(xis[:cut], fits[0], c='b')
-    # # plt.errorbar(xis, IATs[1], yerr=IATs_err[1], c='r', fmt='.', capsize=2, label='FA HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[1],zs_err[1], red_chi2s[1]))
-    # plt.errorbar(xis, IATs[1], yerr=IATs_err[1], c='r', fmt='.', capsize=2, label='FA HMC $z = %.3f \pm %.3f$'%(zs[1],zs_err[1]))
-    # plt.plot(xis[:cut], fits[1], c='r')
+    # plt.errorbar(xis, IATs[0], yerr=IATs_err[0], c='b', fmt='.', capsize=2, label='HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[0],zs_err[0], red_chi2s[0]))
+    plt.errorbar(xis, IATs[0], yerr=IATs_err[0], c='b', fmt='x', markersize=4, capsize=2, label='HMC $z = %.3f \pm %.3f$'%(zs[0],zs_err[0]))
+    plt.plot(xis[:cut], fits[0], c='b')
+    # plt.errorbar(xis, IATs[1], yerr=IATs_err[1], c='r', fmt='.', capsize=2, label='FA HMC $z = %.3f \pm %.3f$\n $\chi^2/DoF = %.3f$'%(zs[1],zs_err[1], red_chi2s[1]))
+    plt.errorbar(xis, IATs[1], yerr=IATs_err[1], c='r', fmt='.', capsize=2, label='FA HMC $z = %.3f \pm %.3f$'%(zs[1],zs_err[1]))
+    plt.plot(xis[:cut], fits[1], c='r')
 
     # # add data points to test finite size effects
     # # fs_data = np.loadtxt('data/mixed_data/sd_finite_size_test.txt')
     # # plt.errorbar(xis[-3:], fs_data[3], yerr=fs_data[4], c='b', alpha=0.25, fmt='.', capsize=2, label='HMC half the lattice size')
 
 
-    # # plt.xscale('log')
-    # # set x ticks manually
-    # ax = plt.gca()
-    # ax.set_xscale('log')
-    # ax.set_xticks([2, 5, 10, 20, 50, 100])
-    # ax.get_xaxis().set_major_formatter(mpl.ticker.ScalarFormatter())
-    # plt.yscale('log')
-    # plt.xlabel(r'correlation length $\xi$ [$a$]')
-    # plt.ylabel(r'autocorrelation time $\tau_{\chi}$')
-    # plt.legend(prop={'size': 12}, frameon=True)
-    # plt.show()
+    plt.xscale('log')
+    # set x ticks manually
+    ax = plt.gca()
+    ax.set_xscale('log')
+    ax.set_xticks([2, 5, 10, 20, 50, 100])
+    ax.get_xaxis().set_major_formatter(mpl.ticker.ScalarFormatter())
+    plt.yscale('log')
+    plt.xlabel(r'correlation length $\xi$ [$a$]')
+    plt.ylabel(r'integrated autocorrelation time $\tau_{\chi}$')
+    plt.legend(prop={'size': 22}, frameon=True)
+    plt.show()
 
 
     # cost function plot
@@ -396,7 +528,7 @@ def critslowing_plot():
     popt, _ = curve_fit(linear_func, np.log(xis), np.log(ratio))
     fit_ratio = np.exp( linear_func(np.log(xis), *popt) )
 
-    fig = plt.figure(figsize=(16,6))
+    fig = plt.figure(figsize=(16,9))
 
     plt.scatter(xis, ratio, marker='x')
     plt.plot(xis, fit_ratio, c='r', label=r'fitted power law $\sim \xi^{%.3f}$'%popt[0])
@@ -409,7 +541,7 @@ def critslowing_plot():
     ax.set_xticks([2, 5, 10, 20, 50, 100])
     ax.get_xaxis().set_major_formatter(mpl.ticker.ScalarFormatter())
     plt.yscale('log')
-    plt.legend(prop={'size': 12}, frameon=True)
+    plt.legend(prop={'size': 22}, frameon=True)
     plt.show()
 
-critslowing_plot()
+# critslowing_plot()

@@ -1,6 +1,9 @@
 # folder containing notes etc. 
 resources/
 
+# feedback on report
+Feedback.pdf
+
 # vscode debugging configurations
 SU2xSU2/.vscode/
 
