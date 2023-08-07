@@ -363,7 +363,7 @@ def asym_scaling_plot():
 
     fig = plt.figure(figsize=(16,9))
     plt.errorbar(betas, mass_lambda, yerr=mass_lambda_err, fmt='.', capsize=2, label='FA HMC')
-    plt.hlines(cts_prediction, betas[0], betas[-1], linestyles='--', color='k', label='continuum prediction')
+    plt.hlines(cts_prediction, betas[0], betas[-1], linestyles=(0, (5,10)), color='k', label='continuum prediction')
     plt.xlabel(r'$\beta$')
     plt.ylabel(r'$m / \Lambda_{L}$')
     plt.legend(prop={'size':22}, frameon=True, loc='lower right')
@@ -371,6 +371,71 @@ def asym_scaling_plot():
     plt.show()
 
 # asym_scaling_plot()
+
+
+def mass_Lambda_plot():
+    '''Makes asymptotic scaling plot using the beta function at 3 loop accuracy.
+    The integral to get the Lambda parameter is computed in 3 different ways: 
+    expanding in 1/beta, numerical integration, analytic integration.'''
+    data = np.loadtxt('data/corlen_beta.txt')
+    _, betas, xi, xi_err, _ = data
+
+    # beta function coefficients
+    N = 2
+    b0 = N / (8*np.pi)
+    b1 = N**2 / (128*np.pi**2)
+    G1 = 0.04616363
+    b2 = 1/(2*np.pi)**3 * (N**3)/128 * ( 1 + np.pi*(N**2 - 2)/(2*N**2) - np.pi**2*((2*N**4-13*N**2+18)/(6*N**4) + 4*G1) ) 
+
+    # Lambda times the lattice spacing a is denoted by the variable F
+    pre_factor = (2*np.pi*betas)**(1/2) * np.exp(-2*np.pi*betas)
+
+    # expanding integrand in 1/beta
+    factor =  (b1**2 - b0*b2)/(N*b0**3)*4/betas
+    F = pre_factor * (1 + factor)
+    mass_lambda_expa = 1/xi * 1/F
+    mass_lambda_expa_err = mass_lambda_expa / xi * xi_err
+
+    # numerical integration 
+    from scipy.integrate import quad
+    def integrand(x):
+        beta_3l = -b0*x**3 - b1*x**5 - b2*x**7 
+        return 1/beta_3l  + 1/(b0*x**3) - b1/(b0**2*x)
+    
+    F = np.zeros_like(betas)
+
+    for i,beta in enumerate(betas):
+        res, err = quad(integrand, 0, beta)
+        F[i] = pre_factor[i] * np.exp(-res)
+
+    mass_lambda_int = 1/xi * 1/F
+    mass_lambda_int_err = mass_lambda_int / xi * xi_err
+
+    # result of analytical intgration (only possible at low loop orders)
+    rho = 1 + b1/(2*b0) * 4/(N*betas)
+    lam = np.sqrt(b0*b2 - (b1**2)/4) / b0 * 4/(N*betas)
+    eta = 1/b0**4 * ( (b1**2)/4 - ((b1**4)/16 - (b0*b1**2*b2)/4 + (b0**2*b2**2)/4) / (b0*b2 - (b1**2)/4) )
+    kap = 1/b0**4 * ((b1**3)/4 - (b0*b1*b2)/2) / (np.sqrt(b0*b2 - (b1**2)/4))
+
+    F = pre_factor * (rho**2 + lam**2)**eta * np.exp( -2*np.arctan(lam/rho)*kap )
+    mass_lambda_ana = 1/xi * 1/F
+    mass_lambda_ana_err = mass_lambda_ana / xi * xi_err
+
+    cts_prediction = 32 * np.exp(np.pi/4) / np.sqrt(np.pi*np.e)
+
+    fig = plt.figure(figsize=(16,9))
+    plt.errorbar(betas, mass_lambda_expa, yerr=mass_lambda_expa_err, fmt='.', capsize=2, label=r'$1/\beta$ expansion')
+    plt.errorbar(betas, mass_lambda_int, yerr=mass_lambda_int_err, fmt='.', capsize=2, label='numerically integrated')
+    plt.errorbar(betas, mass_lambda_ana, yerr=mass_lambda_ana_err, fmt='.', capsize=2, label='analyticaly integrated')
+    plt.hlines(cts_prediction, betas[0], betas[-1], linestyles=(0, (5,10)), color='k', label='continuum prediction')
+    plt.xlabel(r'$\beta$')
+    plt.ylabel(r'$m / \Lambda_{L}$')
+    plt.legend(prop={'size':22}, frameon=True, loc='lower right')
+
+    plt.show()
+
+mass_Lambda_plot()
+
 
 
 def asym_scaling_E_scheme():
@@ -521,16 +586,37 @@ def critslowing_plot():
     plt.legend(prop={'size': 22}, frameon=True)
     plt.show()
 
+# critslowing_plot()
+
+
+def cost_function():
+    '''Makes cost function plot.'''
+    def linear_func(x, z, b):
+        return z*x + b 
+    
+    n = 13 # number of xi measurements at different beta
+    IATs, IATs_err = np.zeros((2,n)), np.zeros((2,n))
+    chis, chis_err = np.zeros((2,n)), np.zeros((2,n))
+    times, acc = np.zeros((2,n)), np.zeros((2,n))
+
+    _, _,  IATs[0], IATs_err[0], chis[0], chis_err[0], times[0], acc[0] = np.loadtxt('data/slowdown/unaccel.txt')
+    _, _, IATs[1], IATs_err[1], chis[1], chis_err[1], times[1], acc[1] = np.loadtxt('data/slowdown/accel.txt')
+
+    xis = np.loadtxt('data/corlen_beta.txt')[2,:n]
 
     # cost function plot
     cost_funcs = times/acc * np.sqrt(IATs)
+    cost_funcs_err = cost_funcs * IATs_err/(2*IATs)
     ratio = cost_funcs[0]/cost_funcs[1]
-    popt, _ = curve_fit(linear_func, np.log(xis), np.log(ratio))
+    ratio_err = cost_funcs_err[0]/cost_funcs[1] + cost_funcs[0]/cost_funcs[1]**2 * cost_funcs_err[1]
+    log_ratio_err = ratio_err / ratio
+    popt, _ = curve_fit(linear_func, np.log(xis), np.log(ratio), sigma=log_ratio_err)
     fit_ratio = np.exp( linear_func(np.log(xis), *popt) )
 
     fig = plt.figure(figsize=(16,9))
 
-    plt.scatter(xis, ratio, marker='x')
+    # plt.scatter(xis, ratio, marker='x')
+    plt.errorbar(xis, ratio, yerr=ratio_err, fmt='.', capsize=2)
     plt.plot(xis, fit_ratio, c='r', label=r'fitted power law $\sim \xi^{%.3f}$'%popt[0])
     plt.xlabel(r'correlation length $\xi$ [$a$]')
     plt.ylabel(r'cost function ratio HMC/FA HMC')
@@ -538,10 +624,16 @@ def critslowing_plot():
     # set x ticks manually
     ax = plt.gca()
     ax.set_xscale('log')
-    ax.set_xticks([2, 5, 10, 20, 50, 100])
+    ax.set_xticks([2, 5, 10, 20, 50, 100], minor=False)
     ax.get_xaxis().set_major_formatter(mpl.ticker.ScalarFormatter())
-    plt.yscale('log')
+    # plt.yscale('log')
+    # set y ticks manually
+    ax.set_yscale('log')
+    ax.set_yticks([1, 5, 10, 25], minor=False)
+    ax.get_yaxis().set_major_formatter(mpl.ticker.ScalarFormatter())
+
+
     plt.legend(prop={'size': 22}, frameon=True)
     plt.show()
 
-# critslowing_plot()
+# cost_function()
