@@ -332,47 +332,6 @@ def correlation_func_plot():
 # correlation_func_plot()
 
 
-def asym_scaling_plot():
-    '''Makes asymptotic scaling plot using the beta function at either 2 or 3 loop accuracy.'''
-    data = np.loadtxt('data/corlen_beta.txt')
-    _, betas, xi, xi_err, _ = data
-
-    def Lambda(betas, loops=3):
-        '''Returns the lattice spacing a times the Lambda parameter at 2 or 3 loop accuracy in the lattice scheme.'''
-        N = 2
-        b0 = N / (8*np.pi)
-        b1 = N**2 / (128*np.pi**2) 
-
-        # 2 loop result
-        res = (2*np.pi*betas)**(1/2) * np.exp(-2*np.pi*betas)
-        if loops == 2:
-            return res
-
-        # 3 loop correction
-        G1 = 0.04616363
-        b2 = 1/(2*np.pi)**3 * (N**3)/128 * ( 1 + np.pi*(N**2 - 2)/(2*N**2) - np.pi**2*((2*N**4-13*N**2+18)/(6*N**4) + 4*G1) )
-        correction =  (b1**2 - b0*b2)/(N*b0**3)*4/betas
-        res = res * (1 + correction)
-
-        return res
-
-    mass_lambda = 1/xi * 1/Lambda(betas)
-    mass_lambda_err = mass_lambda / xi * xi_err
-
-    cts_prediction = 32 * np.exp(np.pi/4) / np.sqrt(np.pi*np.e)
-
-    fig = plt.figure(figsize=(16,9))
-    plt.errorbar(betas, mass_lambda, yerr=mass_lambda_err, fmt='.', capsize=2, label='FA HMC')
-    plt.hlines(cts_prediction, betas[0], betas[-1], linestyles=(0, (5,10)), color='k', label='continuum prediction')
-    plt.xlabel(r'$\beta$')
-    plt.ylabel(r'$m / \Lambda_{L}$')
-    plt.legend(prop={'size':22}, frameon=True, loc='lower right')
-
-    plt.show()
-
-# asym_scaling_plot()
-
-
 def mass_Lambda_plot():
     '''Makes asymptotic scaling plot using the beta function at 3 loop accuracy.
     The integral to get the Lambda parameter is computed in 3 different ways: 
@@ -391,7 +350,7 @@ def mass_Lambda_plot():
     pre_factor = (2*np.pi*betas)**(1/2) * np.exp(-2*np.pi*betas)
 
     # expanding integrand in 1/beta
-    factor =  (b1**2 - b0*b2)/(N*b0**3)*4/betas
+    factor =  (b1**2 - b0*b2)/(b0**3) * 4/(N*betas)
     F = pre_factor * (1 + factor)
     mass_lambda_expa = 1/xi * 1/F
     mass_lambda_expa_err = mass_lambda_expa / xi * xi_err
@@ -399,13 +358,26 @@ def mass_Lambda_plot():
     # numerical integration 
     from scipy.integrate import quad
     def integrand(x):
-        beta_3l = -b0*x**3 - b1*x**5 - b2*x**7 
-        return 1/beta_3l  + 1/(b0*x**3) - b1/(b0**2*x)
+        '''integrand in expression for the renormalisation scale using the beta function at 3 loop accuracy.
+        
+        Parameters
+        ----------
+        x: float
+            value of the coupling constant squared i.e. x=g^2
+
+        Returns
+        -------
+        inte: float
+            the integrand
+        '''
+        beta_3l = -b0*x**2 - b1*x**3 - b2*x**4  
+        inte = 1/beta_3l + 1/(b0*x**2) - b1/(b0**2*x)
+        return inte
     
     F = np.zeros_like(betas)
 
     for i,beta in enumerate(betas):
-        res, err = quad(integrand, 0, beta)
+        res, err = quad(integrand, 0, 4/(N*beta))
         F[i] = pre_factor[i] * np.exp(-res)
 
     mass_lambda_int = 1/xi * 1/F
@@ -424,9 +396,9 @@ def mass_Lambda_plot():
     cts_prediction = 32 * np.exp(np.pi/4) / np.sqrt(np.pi*np.e)
 
     fig = plt.figure(figsize=(16,9))
-    plt.errorbar(betas, mass_lambda_expa, yerr=mass_lambda_expa_err, fmt='.', capsize=2, label=r'$1/\beta$ expansion')
-    plt.errorbar(betas, mass_lambda_int, yerr=mass_lambda_int_err, fmt='.', capsize=2, label='numerically integrated')
-    plt.errorbar(betas, mass_lambda_ana, yerr=mass_lambda_ana_err, fmt='.', capsize=2, label='analyticaly integrated')
+    # plt.errorbar(betas, mass_lambda_expa, yerr=mass_lambda_expa_err, fmt='.', capsize=2, label=r'$1/\beta$ expansion')
+    plt.errorbar(betas, mass_lambda_int, yerr=mass_lambda_int_err, fmt='.', capsize=2, label='FA HMC') # 'numerically integrated'
+    # plt.errorbar(betas, mass_lambda_ana, yerr=mass_lambda_ana_err, fmt='.', capsize=2, label='analyticaly integrated') # doesn't quite agree with other 2 results
     plt.hlines(cts_prediction, betas[0], betas[-1], linestyles=(0, (5,10)), color='k', label='continuum prediction')
     plt.xlabel(r'$\beta$')
     plt.ylabel(r'$m / \Lambda_{L}$')
